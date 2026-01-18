@@ -90,23 +90,19 @@ def sinh_thoai(tone):
 
 
 def tao_prompt_unique(shoe_type, has_cameo):
-    # Chọn tone phù hợp
-    tones = ["Tự tin","Truyền cảm","Mạnh mẽ","Lãng mạn","Tự nhiên"]
-    tone = random.choice(tones)
+    scene = pick_unique_random([s['scene'] for s in scenes], used_scenes)
+    dialogue = pick_unique_random([d['dialogue'] for d in dialogues], used_dialogues)
 
-    # Lọc dữ liệu theo tone và loại giày
-    dialogue_pool = [d["text"] for d in dialogues if d["tone"] == tone and d["shoe_type"] == shoe_type]
-    scene_pool = [f"{s['lighting']}, {s['location']}, {s['motion']}, {s['weather']}, {s['mood']}" for s in scenes if s["shoe_type"] == shoe_type]
-
-    # Nếu không tìm thấy, fallback toàn bộ tone
-    if not dialogue_pool: dialogue_pool = [d["text"] for d in dialogues if d["tone"] == tone]
-    if not scene_pool: scene_pool = [f"{s['lighting']}, {s['location']}, {s['motion']}, {s['weather']}, {s['mood']}" for s in scenes]
-
-    # Lấy thoại & cảnh không trùng
-    dialogue = pick_unique_random(dialogue_pool, used_dialogues)
-    scene = pick_unique_random(scene_pool, used_scenes)
-
-    cameo = "@phuongnghi18091991" if has_cameo else "Voice cameo only"
+    prompt = f"""
+🎬 **SORA PROMPT STUDIO PRO – 4K HDR**
+[Product Type]: {shoe_type}
+[Scene]: {scene}
+[Camera Motion]: Smooth tracking, orbit 360°, 4K clarity, logo không lật, không text.
+[Voiceover @phuongnghi18091991]: {dialogue}
+[Music]: Nhạc nền phù hợp tone {random.choice(['Tự tin', 'Mạnh mẽ', 'Truyền cảm', 'Tự nhiên', 'Lãng mạn'])}, fade-out tự nhiên lúc 9–10s.
+[Quality]: 4K HDR, ánh sáng chuẩn studio, không noise, không vi phạm chính sách TikTok Shop.
+"""
+    return prompt
 
     return f"""
 🎬 PROMPT {'2' if has_cameo else '1'} – {cameo} | {shoe_type.upper()} | Tone {tone}
