@@ -1,5 +1,24 @@
 import streamlit as st
 import random
+import pandas as pd
+import random
+
+# Đọc dữ liệu thoại và bối cảnh
+dialogues = pd.read_csv("dialogue_library.csv").to_dict(orient="records")
+scenes = pd.read_csv("scene_library.csv").to_dict(orient="records")
+
+# Bộ nhớ tạm để tránh trùng lặp
+used_dialogues = set()
+used_scenes = set()
+
+def pick_unique_random(pool, used):
+    choices = [x for x in pool if x not in used]
+    if not choices:  # reset khi hết
+        used.clear()
+        choices = pool.copy()
+    choice = random.choice(choices)
+    used.add(choice)
+    return choice
 
 st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition", layout="wide")
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -70,48 +89,40 @@ def sinh_thoai(tone):
     return "\n".join(random.sample(thu_vien.get(tone, []), 3))
 
 
-def tao_prompt(shoe_type, has_cameo):
-    style, tone = chon_phong_cach_va_tone(shoe_type, has_cameo)
-    voice = sinh_thoai(tone)
+def tao_prompt_unique(shoe_type, has_cameo):
+    # Chọn tone phù hợp
+    tones = ["Tự tin","Truyền cảm","Mạnh mẽ","Lãng mạn","Tự nhiên"]
+    tone = random.choice(tones)
 
-    if has_cameo:
-        scene = f"[Scene] Cảnh quay phong cách {style}, cameo @phuongnghi18091991 xuất hiện với trang phục phù hợp {shoe_type}. " \
-                f"Ánh sáng tự nhiên, phản sáng nhẹ, tone {tone}. Camera xoay quanh nhân vật và đôi giày theo hướng cinematic."
-        camera = """[Camera Motion]
-0–1.5s: Cận cảnh logo giày, focus sâu.  
-1.5–3.5s: Dolly-in, ánh sáng phản sáng vàng.  
-3.5–6.9s: Orbit quanh cameo, flare tự nhiên.  
-6.9–10s: Zoom-out toàn cảnh, ánh sáng fade-out."""
-    else:
-        scene = f"[Scene] Cảnh quay sản phẩm phong cách {style}, không cameo, ánh sáng đồng đều, tone {tone}. " \
-                f"Giày lơ lửng 3D, camera xoay 360 độ chậm, phản sáng mặt sàn nhẹ."
-        camera = """[Camera Motion]
-0–2s: Close-up logo giày, ánh sáng vàng xiên.  
-2–5s: Orbit chậm, focus chuyển động.  
-5–6.9s: Dolly-in nửa vòng, ánh sáng flare.  
-6.9–10s: Fade-out ánh sáng nhẹ."""
+    # Lọc dữ liệu theo tone và loại giày
+    dialogue_pool = [d["text"] for d in dialogues if d["tone"] == tone and d["shoe_type"] == shoe_type]
+    scene_pool = [f"{s['lighting']}, {s['location']}, {s['motion']}, {s['weather']}, {s['mood']}" for s in scenes if s["shoe_type"] == shoe_type]
 
-    music = f"[Music] Nhạc nền {tone.lower()}, fade-out từ 6.9–10s."
-    cameo = "CAMEO @phuongnghi18091991" if has_cameo else "Không cameo, chỉ voice cameo"
+    # Nếu không tìm thấy, fallback toàn bộ tone
+    if not dialogue_pool: dialogue_pool = [d["text"] for d in dialogues if d["tone"] == tone]
+    if not scene_pool: scene_pool = [f"{s['lighting']}, {s['location']}, {s['motion']}, {s['weather']}, {s['mood']}" for s in scenes]
+
+    # Lấy thoại & cảnh không trùng
+    dialogue = pick_unique_random(dialogue_pool, used_dialogues)
+    scene = pick_unique_random(scene_pool, used_scenes)
+
+    cameo = "@phuongnghi18091991" if has_cameo else "Voice cameo only"
 
     return f"""
-🎬 PROMPT {'2' if has_cameo else '1'} – {cameo} | {shoe_type.upper()} | PHONG CÁCH {style} (4K HDR)
+🎬 PROMPT {'2' if has_cameo else '1'} – {cameo} | {shoe_type.upper()} | Tone {tone}
 
-[Product] Giày {shoe_type}, phong cách {style}.
-{scene}
+[Scene] {scene}
 
-{camera}
+[Voiceover – {cameo} | 6.9s]
+{dialogue}
 
-[Voiceover – @phuongnghi18091991 | Tone: {tone} | 6.9s]  
-{voice}
-
-{music}
-[Quality] 4K HDR, không text/logo ngược, ánh sáng thật, motion mượt.  
-[Safety] Hợp chính sách TikTok Shop, không link, không giá, không khuyến mãi.
+[Music] Nhạc nền {tone.lower()}, fade-out tự nhiên 6.9–10s.  
+[Quality] 4K HDR, không logo, không text, đúng chính sách TikTok Shop.
 """
 
+
 with tab1:
-    st.header("🎬 Tạo Prompt Tự Động 5 Mẫu")
+    st.header("prompt = tao_prompt_unique(shoe_type, has_cameo)")
     uploaded_file = st.file_uploader("Tải ảnh giày/dép", type=["jpg","png"])
     has_cameo = st.radio("Chọn loại prompt", [
         "Prompt 1 – Không cameo", 
