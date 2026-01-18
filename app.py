@@ -111,21 +111,31 @@ def tao_prompt(shoe_type, has_cameo):
 """
 
 with tab1:
-    st.header("🎬 Tạo Prompt")
+    st.header("🎬 Tạo Prompt Tự Động 5 Mẫu")
     uploaded_file = st.file_uploader("Tải ảnh giày/dép", type=["jpg","png"])
     has_cameo = st.radio("Chọn loại prompt", [
         "Prompt 1 – Không cameo", 
         "Prompt 2 – Có cameo"
     ]) == "Prompt 2 – Có cameo"
 
+    so_luong = st.slider("Số lượng prompt muốn tạo", 1, 10, 5)
+    st.caption("💡 Mặc định app sẽ sinh 5 prompt chi tiết khác nhau cho cùng sản phẩm.")
+
     if uploaded_file:
         shoe_type = nhan_dien_giay(uploaded_file.name)
         st.write(f"👟 Loại giày nhận dạng: **{shoe_type}**")
 
-        if st.button("🎬 Sinh Prompt Chi Tiết"):
-            prompt = tao_prompt(shoe_type, has_cameo)
-            st.text_area("📜 Prompt chi tiết cho Sora:", prompt, height=400)
-            st.success("✅ Prompt đã sẵn sàng! Sao chép và dán vào Sora.")
+        if st.button("🎬 Sinh Prompt Chi Tiết (Tự Động 5 Mẫu)"):
+            prompts = []
+            for i in range(so_luong):
+                prompt = tao_prompt(shoe_type, has_cameo)
+                prompts.append(prompt)
+                st.markdown(f"### 🎞️ Prompt {i+1}")
+                st.text_area(f"Prompt chi tiết {i+1}", prompt, height=400, key=f"prompt_{i}")
+                st.button(f"📋 Sao chép Prompt {i+1}", key=f"copy_{i}")
+            
+            st.success(f"✅ Đã tạo {so_luong} prompt chi tiết. Hãy chọn prompt phù hợp nhất và dán vào Sora.")
+
 with tab2:
     st.header("🎙️ Tạo thoại Cameo")
     tone = st.selectbox("Chọn tone thoại", [
