@@ -27,7 +27,14 @@ def pick_unique_random(pool, used):
 # 🔹 HÀM TẠO PROMPT CHI TIẾT
 # =========================
 def tao_prompt_unique(shoe_type, has_cameo):
-    scene = pick_unique_random([s['scene'] for s in scenes], used_scenes)
+   scene = pick_unique_random(
+    [
+        f"Ánh sáng: {s['lighting']}, bối cảnh: {s['location']}, chuyển động: {s['motion']}, thời tiết: {s['weather']}, tâm trạng: {s['mood']}"
+        for s in scenes
+    ],
+    used_scenes
+)
+
     dialogue = pick_unique_random([d['dialogue'] for d in dialogues], used_dialogues)
     tone = random.choice(['Tự nhiên', 'Mạnh mẽ', 'Truyền cảm', 'Lãng mạn', 'Tự tin'])
     style = random.choice(['Luxury', 'Street', 'Nature', 'Rain', 'Studio', '3D', 'Sport'])
