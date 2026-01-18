@@ -1,0 +1,575 @@
+id,tone,shoe_type,text,tags
+tutin_001,Tự tin,sneaker,Tôi không đợi cơ hội mà tự tạo ra nhịp đi của riêng mình.,street,energy,motion
+tutin_002,Tự tin,sneaker,Mỗi bước chân là một lựa chọn rõ ràng của bản thân.,street,confidence,urban
+tutin_003,Tự tin,sneaker,Tôi bước đều vì tôi tin vào hướng mình chọn.,urban,steady,confidence
+tutin_004,Tự tin,sneaker,Phong thái tự tin đến từ sự thoải mái.,street,relaxed,style
+tutin_005,Tự tin,sneaker,Tôi đi theo nhịp riêng không cần vội.,energy,flow,street
+tutin_006,Tự tin,runner,Tôi giữ tốc độ ổn định cho đường dài.,sport,focus,endurance
+tutin_007,Tự tin,runner,Mỗi bước là một lần làm chủ bản thân.,running,control,confidence
+tutin_008,Tự tin,runner,Tôi bước nhanh nhưng không hấp tấp.,sport,balance,drive
+tutin_009,Tự tin,runner,Tôi tin vào sự bền bỉ của mình.,endurance,focus,steady
+tutin_010,Tự tin,runner,Nhịp chạy phản ánh tinh thần.,sport,energy,confidence
+tutin_011,Tự tin,leather,Phong cách đến từ sự chủ động.,luxury,confidence,calm
+tutin_012,Tự tin,leather,Tôi chọn sự gọn gàng và chắc chắn.,elegant,control,style
+tutin_013,Tự tin,leather,Tôi bước chậm nhưng dứt khoát.,luxury,steady,confidence
+tutin_014,Tự tin,leather,Sự tự tin thể hiện qua từng chuyển động.,class,calm,style
+tutin_015,Tự tin,leather,Tôi giữ phong thái ổn định cả ngày.,premium,balance,calm
+tutin_016,Tự tin,boot,Tôi bước chắc để giữ thế chủ động.,street,strong,masculine
+tutin_017,Tự tin,boot,Tôi thích cảm giác vững vàng.,power,control,street
+tutin_018,Tự tin,boot,Mỗi bước mang lại sự an tâm.,strong,steady,urban
+tutin_019,Tự tin,boot,Tôi chọn sự ổn định lâu dài.,masculine,confidence,street
+tutin_020,Tự tin,boot,Tôi di chuyển với sự kiểm soát.,control,strong,style
+
+truyencam_021,Truyền cảm,leather,Tôi chú ý đến cảm giác trong từng chi tiết.,luxury,emotion,studio
+truyencam_022,Truyền cảm,leather,Ánh sáng nhẹ làm mọi thứ dịu hơn.,soft,light,emotion
+truyencam_023,Truyền cảm,leather,Tôi cảm nhận sự hài hòa khi bước đi.,elegant,calm,style
+truyencam_024,Truyền cảm,leather,Mỗi chuyển động đều có cảm xúc.,emotion,refined,studio
+truyencam_025,Truyền cảm,leather,Tôi thích sự tinh tế vừa đủ.,luxury,quiet,emotion
+truyencam_026,Truyền cảm,casual,Tôi để cảm xúc dẫn nhịp bước.,lifestyle,emotion,soft
+truyencam_027,Truyền cảm,casual,Tôi tận hưởng khoảnh khắc hiện tại.,calm,personal,life
+truyencam_028,Truyền cảm,casual,Mỗi bước mang một cảm giác riêng.,soft,emotion,style
+truyencam_029,Truyền cảm,casual,Tôi đi chậm để cảm nhận rõ hơn.,peace,slow,lifestyle
+truyencam_030,Truyền cảm,casual,Sự nhẹ nhàng tạo nên phong thái.,gentle,emotion,style
+truyencam_031,Truyền cảm,luxury,Tôi thích không gian yên tĩnh.,premium,calm,studio
+truyencam_032,Truyền cảm,luxury,Mọi thứ trở nên hài hòa hơn.,luxury,soft,emotion
+truyencam_033,Truyền cảm,luxury,Tôi giữ nhịp đi thư thả.,quiet,refined,style
+truyencam_034,Truyền cảm,luxury,Tôi cảm thấy dễ chịu khi di chuyển.,premium,calm,emotion
+truyencam_035,Truyền cảm,luxury,Sự tinh giản tạo nên cảm xúc.,minimal,elegant,soft
+
+manhme_036,Mạnh mẽ,runner,Tôi không chùn bước khi đã bắt đầu.,sport,drive,power
+manhme_037,Mạnh mẽ,runner,Mỗi bước là một lần vượt giới hạn.,running,strength,focus
+manhme_038,Mạnh mẽ,runner,Tôi giữ nhịp cao nhưng ổn định.,endurance,energy,power
+manhme_039,Mạnh mẽ,runner,Tôi tin vào sức bền của mình.,sport,strong,focus
+manhme_040,Mạnh mẽ,runner,Đường dài cần sự kiên định.,running,determination,power
+manhme_041,Mạnh mẽ,boot,Tôi bước chắc để giữ vị thế.,street,strong,masculine
+manhme_042,Mạnh mẽ,boot,Tôi thích cảm giác kiểm soát.,power,control,urban
+manhme_043,Mạnh mẽ,boot,Tôi tiến lên không do dự.,drive,street,strong
+manhme_044,Mạnh mẽ,boot,Sự ổn định tạo nên sức mạnh.,masculine,steady,power
+manhme_045,Mạnh mẽ,boot,Tôi chọn phong thái cứng cáp.,strong,confidence,street
+
+langman_046,Lãng mạn,casual,Tôi để cảm xúc dẫn lối.,emotion,soft,romantic
+langman_047,Lãng mạn,casual,Mỗi bước là một kỷ niệm.,memory,nostalgia,soft
+langman_048,Lãng mạn,casual,Tôi thích nhịp đi chậm.,calm,romance,lifestyle
+langman_049,Lãng mạn,casual,Không gian làm cảm xúc dịu lại.,soft,peace,emotion
+langman_050,Lãng mạn,casual,Tôi bước nhẹ để giữ cảm giác.,gentle,romantic,style
+
+tunhien_051,Tự nhiên,sandals,Tôi bước nhẹ để hòa vào không gian.,nature,relax,free
+tunhien_052,Tự nhiên,sandals,Tôi cảm nhận mặt đất dưới chân.,outdoor,calm,nature
+tunhien_053,Tự nhiên,sandals,Tôi đi chậm để lắng nghe xung quanh.,peace,natural,slow
+tunhien_054,Tự nhiên,sandals,Mọi thứ trở nên dễ chịu hơn.,fresh,relax,outdoor
+tunhien_055,Tự nhiên,sandals,Tôi chọn sự thoải mái cho cả ngày.,minimal,free,nature
+tunhien_056,Tự nhiên,sandals,Tôi để đôi chân tự do cảm nhận từng bước.,nature,freedom,calm
+tunhien_057,Tự nhiên,sandals,Tôi thích cảm giác nhẹ nhàng khi di chuyển.,relax,soft,outdoor
+tunhien_058,Tự nhiên,sandals,Tôi bước theo nhịp của không gian xung quanh.,nature,flow,peace
+tunhien_059,Tự nhiên,sandals,Mỗi bước là một lần thả lỏng.,easy,free,nature
+tunhien_060,Tự nhiên,sandals,Tôi tận hưởng sự đơn giản.,minimal,calm,outdoor
+tunhien_061,Tự nhiên,sandals,Gió nhẹ làm mọi thứ dễ chịu hơn.,wind,relax,nature
+tunhien_062,Tự nhiên,sandals,Tôi thích cảm giác gần gũi.,natural,soft,free
+tunhien_063,Tự nhiên,sandals,Tôi đi chậm để giữ năng lượng.,peace,balance,calm
+tunhien_064,Tự nhiên,sandals,Mọi chuyển động đều nhẹ nhàng.,soft,relax,nature
+tunhien_065,Tự nhiên,sandals,Tôi hòa mình vào thiên nhiên.,outdoor,fresh,free
+
+tutin_066,Tự tin,sneaker,Tôi bước đi với sự thoải mái.,street,confidence,casual
+tutin_067,Tự tin,sneaker,Tôi thích cảm giác linh hoạt.,urban,energy,flow
+tutin_068,Tự tin,sneaker,Tôi giữ nhịp ổn định suốt ngày.,street,balance,confidence
+tutin_069,Tự tin,sneaker,Phong thái đến từ sự quen thuộc.,casual,calm,style
+tutin_070,Tự tin,sneaker,Tôi di chuyển tự nhiên.,urban,relaxed,confidence
+tutin_071,Tự tin,runner,Tôi duy trì nhịp chạy đều.,sport,focus,endurance
+tutin_072,Tự tin,runner,Tôi tin vào quá trình.,running,steady,confidence
+tutin_073,Tự tin,runner,Mỗi bước đều có mục tiêu.,sport,drive,focus
+tutin_074,Tự tin,runner,Tôi giữ sự kiểm soát.,endurance,control,confidence
+tutin_075,Tự tin,runner,Tôi chọn sự bền bỉ.,sport,energy,steady
+tutin_076,Tự tin,leather,Tôi bước với sự chỉn chu.,elegant,confidence,style
+tutin_077,Tự tin,leather,Phong thái đến từ sự gọn gàng.,luxury,calm,control
+tutin_078,Tự tin,leather,Tôi thích sự ổn định.,class,steady,confidence
+tutin_079,Tự tin,leather,Tôi giữ phong cách quen thuộc.,premium,style,calm
+tutin_080,Tự tin,leather,Mọi thứ vừa vặn.,luxury,balance,confidence
+tutin_081,Tự tin,boot,Tôi bước chắc mỗi ngày.,street,strong,steady
+tutin_082,Tự tin,boot,Tôi giữ thế vững vàng.,masculine,confidence,power
+tutin_083,Tự tin,boot,Tôi thích sự an tâm.,urban,strong,calm
+tutin_084,Tự tin,boot,Mỗi bước đều có trọng lượng.,power,street,control
+tutin_085,Tự tin,boot,Tôi chọn phong thái ổn định.,strong,style,confidence
+
+truyencam_086,Truyền cảm,casual,Tôi để cảm xúc tự nhiên.,soft,emotion,lifestyle
+truyencam_087,Truyền cảm,casual,Tôi thích nhịp sống chậm.,calm,emotion,peace
+truyencam_088,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_089,Truyền cảm,casual,Tôi tận hưởng sự nhẹ nhàng.,emotion,slow,life
+truyencam_090,Truyền cảm,casual,Tôi cảm thấy dễ chịu.,calm,soft,lifestyle
+truyencam_091,Truyền cảm,leather,Tôi chú ý đến sự hài hòa.,elegant,emotion,studio
+truyencam_092,Truyền cảm,leather,Mọi chi tiết đều có cảm xúc.,luxury,soft,refined
+truyencam_093,Truyền cảm,leather,Tôi thích sự tinh giản.,minimal,emotion,style
+truyencam_094,Truyền cảm,leather,Tôi giữ cảm giác ổn định.,calm,luxury,emotion
+truyencam_095,Truyền cảm,leather,Sự tinh tế làm tôi thoải mái.,premium,soft,studio
+truyencam_096,Truyền cảm,luxury,Không gian yên tĩnh giúp tôi tập trung.,quiet,emotion,studio
+truyencam_097,Truyền cảm,luxury,Tôi cảm nhận sự nhẹ nhàng.,soft,premium,calm
+truyencam_098,Truyền cảm,luxury,Tôi thích cảm giác cân bằng.,elegant,emotion,refined
+truyencam_099,Truyền cảm,luxury,Mọi thứ diễn ra chậm rãi.,luxury,slow,emotion
+truyencam_100,Truyền cảm,luxury,Tôi giữ nhịp đi êm.,premium,calm,style
+
+manhme_101,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_102,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_103,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_104,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_105,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+manhme_106,Mạnh mẽ,boot,Tôi bước chắc trên mọi địa hình.,street,strong,masculine
+manhme_107,Mạnh mẽ,boot,Tôi thích cảm giác cứng cáp.,power,urban,control
+manhme_108,Mạnh mẽ,boot,Tôi giữ vị thế.,strong,street,confidence
+manhme_109,Mạnh mẽ,boot,Tôi chọn sự vững vàng.,masculine,power,steady
+manhme_110,Mạnh mẽ,boot,Mỗi bước đều dứt khoát.,drive,strong,street
+
+langman_111,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_112,Lãng mạn,casual,Mỗi bước gợi nhớ.,memory,nostalgia,calm
+langman_113,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_114,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_115,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+langman_116,Lãng mạn,casual,Tôi để nhịp chân kể câu chuyện của riêng mình.,emotion,soft,romantic
+langman_117,Lãng mạn,casual,Tôi thích sự yên tĩnh khi di chuyển.,calm,lifestyle,peace
+langman_118,Lãng mạn,casual,Mỗi bước đều mang theo cảm xúc.,emotion,nostalgia,soft
+langman_119,Lãng mạn,casual,Tôi bước chậm để giữ cảm giác.,gentle,romantic,style
+langman_120,Lãng mạn,casual,Phong thái đến từ sự thư thả.,soft,elegant,emotion
+
+tunhien_121,Tự nhiên,sandals,Tôi bước theo nhịp của thiên nhiên.,nature,flow,free
+tunhien_122,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_123,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_124,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_125,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+tunhien_126,Tự nhiên,sandals,Gió và nắng làm tôi dễ chịu.,wind,sun,relax
+tunhien_127,Tự nhiên,sandals,Tôi tận hưởng sự tự do.,freedom,outdoor,nature
+tunhien_128,Tự nhiên,sandals,Tôi để mọi thứ diễn ra tự nhiên.,flow,peace,calm
+tunhien_129,Tự nhiên,sandals,Mỗi bước là một lần nghỉ ngơi.,relax,easy,nature
+tunhien_130,Tự nhiên,sandals,Tôi hòa mình vào không gian.,outdoor,fresh,free
+
+tutin_131,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_132,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_133,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_134,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_135,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+tutin_136,Tự tin,runner,Tôi duy trì nhịp ổn định.,sport,focus,endurance
+tutin_137,Tự tin,runner,Mỗi bước là sự kiểm soát.,running,control,confidence
+tutin_138,Tự tin,runner,Tôi tin vào sức bền.,sport,energy,steady
+tutin_139,Tự tin,runner,Tôi không vội nhưng vẫn tiến.,drive,balance,focus
+tutin_140,Tự tin,runner,Tôi bước đều để giữ nhịp.,running,steady,confidence
+tutin_141,Tự tin,leather,Tôi giữ phong thái chỉn chu.,elegant,confidence,style
+tutin_142,Tự tin,leather,Tôi chọn sự gọn gàng.,luxury,control,calm
+tutin_143,Tự tin,leather,Phong cách đến từ sự ổn định.,class,steady,confidence
+tutin_144,Tự tin,leather,Tôi thích cảm giác vừa vặn.,premium,balance,style
+tutin_145,Tự tin,leather,Mỗi bước đều chắc chắn.,luxury,confidence,calm
+tutin_146,Tự tin,boot,Tôi bước vững vàng.,street,strong,masculine
+tutin_147,Tự tin,boot,Tôi giữ thế chủ động.,power,control,urban
+tutin_148,Tự tin,boot,Tôi thích cảm giác an tâm.,strong,steady,street
+tutin_149,Tự tin,boot,Tôi di chuyển dứt khoát.,drive,masculine,confidence
+tutin_150,Tự tin,boot,Tôi chọn phong thái chắc chắn.,street,strong,style
+
+truyencam_151,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_152,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_153,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_154,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_155,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+truyencam_156,Truyền cảm,leather,Tôi chú ý đến sự tinh tế.,luxury,emotion,studio
+truyencam_157,Truyền cảm,leather,Mọi chi tiết đều hài hòa.,elegant,soft,refined
+truyencam_158,Truyền cảm,leather,Tôi thích sự giản dị.,minimal,emotion,style
+truyencam_159,Truyền cảm,leather,Tôi giữ cảm giác ổn định.,calm,luxury,emotion
+truyencam_160,Truyền cảm,leather,Sự tinh giản làm tôi dễ chịu.,premium,soft,studio
+truyencam_161,Truyền cảm,luxury,Không gian yên tĩnh giúp tôi tập trung.,quiet,emotion,studio
+truyencam_162,Truyền cảm,luxury,Tôi cảm nhận sự cân bằng.,soft,premium,calm
+truyencam_163,Truyền cảm,luxury,Tôi thích cảm giác nhẹ nhàng.,elegant,emotion,refined
+truyencam_164,Truyền cảm,luxury,Mọi thứ diễn ra chậm rãi.,luxury,slow,emotion
+truyencam_165,Truyền cảm,luxury,Tôi giữ nhịp đi êm ái.,premium,calm,style
+
+manhme_166,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_167,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_168,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_169,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_170,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+manhme_171,Mạnh mẽ,boot,Tôi bước chắc trên mọi địa hình.,street,strong,masculine
+manhme_172,Mạnh mẽ,boot,Tôi thích cảm giác cứng cáp.,power,urban,control
+manhme_173,Mạnh mẽ,boot,Tôi giữ vị thế.,strong,street,confidence
+manhme_174,Mạnh mẽ,boot,Tôi chọn sự vững vàng.,masculine,power,steady
+manhme_175,Mạnh mẽ,boot,Mỗi bước đều dứt khoát.,drive,strong,street
+
+langman_176,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_177,Lãng mạn,casual,Mỗi bước gợi nhớ kỷ niệm.,memory,nostalgia,calm
+langman_178,Lãng mạn,casual,Tôi giữ nhịp chậm rãi.,peace,romantic,soft
+langman_179,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_180,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_181,Tự nhiên,sandals,Tôi bước theo hơi thở thiên nhiên.,nature,flow,free
+tunhien_182,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_183,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_184,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_185,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+tunhien_186,Tự nhiên,sandals,Gió và nắng làm tôi dễ chịu.,wind,sun,relax
+tunhien_187,Tự nhiên,sandals,Tôi tận hưởng sự tự do.,freedom,outdoor,nature
+tunhien_188,Tự nhiên,sandals,Tôi để mọi thứ diễn ra tự nhiên.,flow,peace,calm
+tunhien_189,Tự nhiên,sandals,Mỗi bước là một lần nghỉ ngơi.,relax,easy,nature
+tunhien_190,Tự nhiên,sandals,Tôi hòa mình vào không gian.,outdoor,fresh,free
+
+tutin_191,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_192,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_193,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_194,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_195,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+tutin_196,Tự tin,runner,Tôi duy trì nhịp ổn định.,sport,focus,endurance
+tutin_197,Tự tin,runner,Mỗi bước là sự kiểm soát.,running,control,confidence
+tutin_198,Tự tin,runner,Tôi tin vào sức bền.,sport,energy,steady
+tutin_199,Tự tin,runner,Tôi không vội nhưng vẫn tiến.,drive,balance,focus
+tutin_200,Tự tin,runner,Tôi bước đều để giữ nhịp.,running,steady,confidence
+
+truyencam_201,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_202,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_203,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_204,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_205,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_206,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_207,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_208,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_209,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_210,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_211,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_212,Lãng mạn,casual,Mỗi bước gợi nhớ kỷ niệm.,memory,nostalgia,calm
+langman_213,Lãng mạn,casual,Tôi giữ nhịp chậm rãi.,peace,romantic,soft
+langman_214,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_215,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_216,Tự nhiên,sandals,Tôi bước theo hơi thở thiên nhiên.,nature,flow,free
+tunhien_217,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_218,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_219,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_220,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_221,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_222,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_223,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_224,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_225,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_226,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_227,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_228,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_229,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_230,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_231,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_232,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_233,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_234,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_235,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_236,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_237,Lãng mạn,casual,Mỗi bước gợi nhớ kỷ niệm.,memory,nostalgia,calm
+langman_238,Lãng mạn,casual,Tôi giữ nhịp chậm rãi.,peace,romantic,soft
+langman_239,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_240,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_241,Tự nhiên,sandals,Tôi bước theo hơi thở thiên nhiên.,nature,flow,free
+tunhien_242,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_243,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_244,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_245,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_246,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_247,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_248,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_249,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_250,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_251,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_252,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_253,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_254,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_255,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_256,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_257,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_258,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_259,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_260,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_261,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_262,Lãng mạn,casual,Mỗi bước gợi nhớ kỷ niệm.,memory,nostalgia,calm
+langman_263,Lãng mạn,casual,Tôi giữ nhịp chậm rãi.,peace,romantic,soft
+langman_264,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_265,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_266,Tự nhiên,sandals,Tôi bước theo hơi thở thiên nhiên.,nature,flow,free
+tunhien_267,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_268,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_269,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_270,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_271,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_272,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_273,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_274,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_275,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_276,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_277,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_278,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_279,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_280,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_281,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_282,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_283,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_284,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_285,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_286,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_287,Lãng mạn,casual,Mỗi bước gợi nhớ kỷ niệm.,memory,nostalgia,calm
+langman_288,Lãng mạn,casual,Tôi giữ nhịp chậm rãi.,peace,romantic,soft
+langman_289,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_290,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_291,Tự nhiên,sandals,Tôi bước theo hơi thở thiên nhiên.,nature,flow,free
+tunhien_292,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_293,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_294,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_295,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_296,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_297,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_298,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_299,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_300,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+truyencam_301,Truyền cảm,casual,Tôi để cảm xúc dẫn dắt từng bước.,emotion,soft,lifestyle
+truyencam_302,Truyền cảm,casual,Tôi thích sự yên tĩnh quanh mình.,calm,emotion,peace
+truyencam_303,Truyền cảm,casual,Mỗi bước mang một trạng thái riêng.,personal,soft,style
+truyencam_304,Truyền cảm,casual,Tôi đi chậm để cảm nhận rõ hơn.,slow,emotion,life
+truyencam_305,Truyền cảm,casual,Tôi giữ cảm giác thư giãn.,calm,soft,lifestyle
+
+manhme_306,Mạnh mẽ,runner,Tôi duy trì nhịp độ ổn định.,sport,drive,power
+manhme_307,Mạnh mẽ,runner,Tôi không để nhịp bị ngắt.,running,focus,strong
+manhme_308,Mạnh mẽ,runner,Tôi tiến lên từng bước chắc chắn.,endurance,determination,power
+manhme_309,Mạnh mẽ,runner,Mỗi bước là sự cam kết.,sport,strength,focus
+manhme_310,Mạnh mẽ,runner,Tôi giữ vững sức bền.,running,energy,strong
+
+langman_311,Lãng mạn,casual,Tôi thích cảm giác quen thuộc.,emotion,soft,lifestyle
+langman_312,Lãng mạn,casual,Mỗi bước gợi lên kỷ niệm.,memory,nostalgia,calm
+langman_313,Lãng mạn,casual,Tôi giữ nhịp đi chậm rãi.,peace,romantic,soft
+langman_314,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_315,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_316,Tự nhiên,sandals,Tôi bước theo nhịp thở của thiên nhiên.,nature,flow,free
+tunhien_317,Tự nhiên,sandals,Tôi thích cảm giác thoáng mát.,outdoor,relax,calm
+tunhien_318,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng hơn.,peace,free,nature
+tunhien_319,Tự nhiên,sandals,Tôi di chuyển nhẹ và chậm.,soft,relax,outdoor
+tunhien_320,Tự nhiên,sandals,Tôi chọn sự giản đơn.,minimal,natural,calm
+
+tutin_321,Tự tin,sneaker,Tôi bước đi với sự quen thuộc.,street,confidence,casual
+tutin_322,Tự tin,sneaker,Tôi giữ nhịp ổn định.,urban,steady,style
+tutin_323,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_324,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_325,Tự tin,sneaker,Tôi chọn sự tiện lợi hằng ngày.,casual,street,confidence
+
+truyencam_326,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_327,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_328,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_329,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_330,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_331,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_332,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_333,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_334,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_335,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_336,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_337,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_338,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_339,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_340,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_341,Tự nhiên,sandals,Tôi bước theo thiên nhiên xung quanh.,nature,flow,free
+tunhien_342,Tự nhiên,sandals,Tôi thích cảm giác thoáng đãng.,outdoor,relax,calm
+tunhien_343,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_344,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_345,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_346,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_347,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_348,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_349,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_350,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_351,Truyền cảm,casual,Tôi để cảm xúc dẫn lối.,emotion,soft,lifestyle
+truyencam_352,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_353,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_354,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_355,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_356,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_357,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_358,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_359,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_360,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_361,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_362,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_363,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_364,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_365,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_366,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_367,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_368,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_369,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_370,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_371,Tự tin,sneaker,Tôi bước đi tự nhiên.,street,confidence,casual
+tutin_372,Tự tin,sneaker,Tôi giữ nhịp ổn định.,urban,steady,style
+tutin_373,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_374,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_375,Tự tin,sneaker,Tôi chọn sự tiện lợi.,casual,street,confidence
+
+truyencam_376,Truyền cảm,casual,Tôi để cảm xúc dẫn lối.,emotion,soft,lifestyle
+truyencam_377,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_378,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_379,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_380,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_381,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_382,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_383,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_384,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_385,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_386,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_387,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_388,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_389,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_390,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_391,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_392,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_393,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_394,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_395,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_396,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_397,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_398,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_399,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_400,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_401,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_402,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_403,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_404,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_405,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_406,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_407,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_408,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_409,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_410,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_411,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_412,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_413,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_414,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_415,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_416,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_417,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_418,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_419,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_420,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_421,Tự tin,sneaker,Tôi bước đi tự nhiên.,street,confidence,casual
+tutin_422,Tự tin,sneaker,Tôi giữ nhịp ổn định.,urban,steady,style
+tutin_423,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_424,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_425,Tự tin,sneaker,Tôi chọn sự tiện lợi.,casual,street,confidence
+
+truyencam_426,Truyền cảm,casual,Tôi để cảm xúc dẫn lối.,emotion,soft,lifestyle
+truyencam_427,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_428,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_429,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_430,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_431,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_432,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_433,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_434,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_435,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_436,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_437,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_438,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_439,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_440,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_441,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_442,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_443,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_444,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_445,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_446,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_447,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_448,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_449,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_450,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
+
+truyencam_451,Truyền cảm,casual,Tôi để cảm xúc dẫn đường.,emotion,soft,lifestyle
+truyencam_452,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_453,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_454,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_455,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_456,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_457,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_458,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_459,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_460,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_461,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_462,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_463,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_464,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_465,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_466,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_467,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_468,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_469,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_470,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_471,Tự tin,sneaker,Tôi bước đi tự nhiên.,street,confidence,casual
+tutin_472,Tự tin,sneaker,Tôi giữ nhịp ổn định.,urban,steady,style
+tutin_473,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_474,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_475,Tự tin,sneaker,Tôi chọn sự tiện lợi.,casual,street,confidence
+
+truyencam_476,Truyền cảm,casual,Tôi để cảm xúc dẫn lối.,emotion,soft,lifestyle
+truyencam_477,Truyền cảm,casual,Tôi tận hưởng sự yên bình.,calm,emotion,peace
+truyencam_478,Truyền cảm,casual,Mỗi bước mang lại cảm giác riêng.,soft,personal,style
+truyencam_479,Truyền cảm,casual,Tôi thích nhịp sống chậm.,slow,emotion,life
+truyencam_480,Truyền cảm,casual,Tôi cảm thấy thư giãn.,calm,soft,lifestyle
+
+manhme_481,Mạnh mẽ,runner,Tôi duy trì cường độ.,sport,drive,power
+manhme_482,Mạnh mẽ,runner,Tôi không bỏ nhịp.,running,focus,strong
+manhme_483,Mạnh mẽ,runner,Tôi tiến lên đều đặn.,endurance,determination,power
+manhme_484,Mạnh mẽ,runner,Mỗi bước là một thử thách.,sport,strength,focus
+manhme_485,Mạnh mẽ,runner,Tôi giữ sức bền.,running,energy,strong
+
+langman_486,Lãng mạn,casual,Tôi thích cảm giác quen.,emotion,soft,lifestyle
+langman_487,Lãng mạn,casual,Mỗi bước gợi ký ức.,memory,nostalgia,calm
+langman_488,Lãng mạn,casual,Tôi giữ nhịp chậm.,peace,romantic,soft
+langman_489,Lãng mạn,casual,Không gian làm dịu cảm xúc.,gentle,emotion,style
+langman_490,Lãng mạn,casual,Tôi tận hưởng sự thư thả.,calm,romance,lifestyle
+
+tunhien_491,Tự nhiên,sandals,Tôi bước theo thiên nhiên.,nature,flow,free
+tunhien_492,Tự nhiên,sandals,Tôi thích cảm giác thoáng.,outdoor,relax,calm
+tunhien_493,Tự nhiên,sandals,Mỗi bước giúp tôi thả lỏng.,peace,free,nature
+tunhien_494,Tự nhiên,sandals,Tôi di chuyển nhẹ nhàng.,soft,relax,outdoor
+tunhien_495,Tự nhiên,sandals,Tôi chọn sự đơn giản.,minimal,natural,calm
+
+tutin_496,Tự tin,sneaker,Tôi bước đi đầy thoải mái.,street,confidence,casual
+tutin_497,Tự tin,sneaker,Tôi giữ nhịp quen thuộc.,urban,steady,style
+tutin_498,Tự tin,sneaker,Phong thái đến từ sự linh hoạt.,energy,flow,street
+tutin_499,Tự tin,sneaker,Tôi di chuyển nhẹ nhưng chắc.,confidence,balance,urban
+tutin_500,Tự tin,sneaker,Tôi chọn sự tiện lợi mỗi ngày.,casual,street,confidence
