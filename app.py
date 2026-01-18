@@ -4,9 +4,6 @@ import random
 import base64
 from pathlib import Path
 
-# =========================
-# PAGE CONFIG
-# =========================
 st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition", layout="wide")
 st.title("🎬 Sora Prompt Studio Pro – Director Edition")
 st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE")
@@ -18,13 +15,8 @@ def copy_button(text: str, key: str):
     b64 = base64.b64encode(text.encode("utf-8")).decode("utf-8")
     html = f"""
     <button id="{key}" style="
-        padding:8px 14px;
-        border-radius:10px;
-        border:1px solid #ccc;
-        cursor:pointer;
-        background:#fff;
-        font-weight:600;
-    ">📋 COPY</button>
+        padding:8px 14px;border-radius:10px;border:1px solid #ccc;
+        cursor:pointer;background:#fff;font-weight:600;">📋 COPY</button>
     <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
     <script>
     const btn = document.getElementById("{key}");
@@ -58,41 +50,71 @@ if missing:
 @st.cache_data
 def load_dialogues():
     df = pd.read_csv("dialogue_library.csv")
-    # expected columns: id,tone,shoe_type,text,tags
+    # expected: id,tone,shoe_type,text,tags
     return df.to_dict(orient="records")
 
 @st.cache_data
 def load_scenes():
     df = pd.read_csv("scene_library.csv")
-    # expected columns: id,shoe_type,lighting,location,motion,weather,mood
+    # expected: id,shoe_type,lighting,location,motion,weather,mood
     return df.to_dict(orient="records")
 
 @st.cache_data
-def load_disclaimer_prompt2():
+def load_disclaimer_prompt2_flexible():
+    """
+    Hỗ trợ mọi kiểu header:
+    - Nếu có cột 'disclaimer' => dùng
+    - Nếu không => tự tìm cột text phù hợp:
+        ưu tiên: 'text', 'mien_tru', 'mien_tru2', 'note', 'content'
+        nếu vẫn không => lấy cột cuối cùng (hoặc cột thứ 2 nếu cột 1 là id)
+    """
     df = pd.read_csv("disclaimer_prompt2.csv")
-    # expected column: disclaimer
-    if "disclaimer" not in df.columns:
-        raise ValueError("disclaimer_prompt2.csv cần cột 'disclaimer'")
-    return df["disclaimer"].dropna().astype(str).tolist()
+    cols = [c.strip() for c in df.columns.tolist()]
+
+    # 1) chuẩn
+    if "disclaimer" in cols:
+        arr = df["disclaimer"].dropna().astype(str).tolist()
+        return [x.strip() for x in arr if x.strip()]
+
+    # 2) thử các tên phổ biến
+    preferred = ["text", "mien_tru", "miễn_trừ", "mien_tru2", "note", "content", "noi_dung"]
+    for c in preferred:
+        if c in cols:
+            arr = df[c].dropna().astype(str).tolist()
+            return [x.strip() for x in arr if x.strip()]
+
+    # 3) suy luận: nếu có 'id' và có >=2 cột => lấy cột thứ 2
+    if len(cols) >= 2 and cols[0].lower() in ["id", "stt", "no"]:
+        arr = df[cols[1]].dropna().astype(str).tolist()
+        return [x.strip() for x in arr if x.strip()]
+
+    # 4) fallback: lấy cột cuối cùng
+    last = cols[-1]
+    arr = df[last].dropna().astype(str).tolist()
+    return [x.strip() for x in arr if x.strip()]
 
 @st.cache_data
 def load_disclaimer_prompt1_optional():
-    # optional file: disclaimer_prompt1.csv with column 'disclaimer'
     p = Path("disclaimer_prompt1.csv")
     if not p.exists():
         return None
     df = pd.read_csv(str(p))
-    if "disclaimer" not in df.columns:
-        return None
-    arr = df["disclaimer"].dropna().astype(str).tolist()
+    cols = [c.strip() for c in df.columns.tolist()]
+    if "disclaimer" in cols:
+        arr = df["disclaimer"].dropna().astype(str).tolist()
+        arr = [x.strip() for x in arr if x.strip()]
+        return arr if arr else None
+    # fallback: lấy cột cuối
+    last = cols[-1]
+    arr = df[last].dropna().astype(str).tolist()
+    arr = [x.strip() for x in arr if x.strip()]
     return arr if arr else None
 
 dialogues = load_dialogues()
 scenes = load_scenes()
-disclaimers_p2 = load_disclaimer_prompt2()
+disclaimers_p2 = load_disclaimer_prompt2_flexible()
 disclaimers_p1 = load_disclaimer_prompt1_optional()
 
-# fallback disclaimer list for Prompt 1 (nếu chồng chưa tạo file disclaimer_prompt1.csv)
 DISCLAIMER_P1_FALLBACK = [
     "Nội dung chỉ mang tính chia sẻ trải nghiệm cá nhân.",
     "Video mang tính minh họa trải nghiệm, không kêu gọi hành động.",
@@ -140,31 +162,23 @@ def scene_line(scene):
     return f"{scene['lighting']} • {scene['location']} • {scene['motion']} • {scene['weather']} • mood {scene['mood']}"
 
 def filter_scenes_by_shoe_type(shoe_type):
-    f = [s for s in scenes if str(s.get("shoe_type", "")).strip().lower() == shoe_type.lower()]
+    f = [s for s in scenes if str(s.get("shoe_type","")).strip().lower() == shoe_type.lower()]
     return f if f else scenes
 
 def filter_dialogues(shoe_type, tone):
-    # ưu tiên: tone khớp; nếu có shoe_type khớp thì càng tốt
-    tone_f = [d for d in dialogues if str(d.get("tone", "")).strip() == tone]
+    tone_f = [d for d in dialogues if str(d.get("tone","")).strip() == tone]
     if not tone_f:
         tone_f = dialogues
-
-    shoe_f = [d for d in tone_f if str(d.get("shoe_type", "")).strip().lower() == shoe_type.lower()]
+    shoe_f = [d for d in tone_f if str(d.get("shoe_type","")).strip().lower() == shoe_type.lower()]
     return shoe_f if shoe_f else tone_f
 
-# =========================
-# BUILD PROMPTS
-# =========================
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 
 def build_prompt_p1(shoe_type, tone):
-    # Prompt 1: KHÔNG cameo hình ảnh, nhưng CÓ voice (voice-off)
     s_pool = filter_scenes_by_shoe_type(shoe_type)
     d_pool = filter_dialogues(shoe_type, tone)
-
     s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
     d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-
     disclaimer = random.choice(disclaimers_p1 if disclaimers_p1 else DISCLAIMER_P1_FALLBACK)
 
     return f"""
@@ -180,38 +194,25 @@ VIDEO SETUP
 
 PRODUCT
 - shoe_type: {shoe_type}
-- Bám theo hình ảnh giày đã tải lên (giữ form, màu, chi tiết ổn định)
 
-SCENE (1 video = 1 cảnh, không trùng)
+SCENE
 - {scene_line(s)}
 
-══════════════════════════════════
-AUDIO TIMELINE — ABSOLUTE
-══════════════════════════════════
+AUDIO TIMELINE
+0.0–1.2s: Không thoại, ambient + nhạc nền rất nhẹ
+1.2–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
+6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
 
-0.0–1.2s
-- Không thoại, chỉ ambient + nhạc nền rất nhẹ (fade-in)
-
-1.2–6.9s (VOICE ON — 2–3 câu, đời thường)
-- Giọng nam ấm, kể chuyện trải nghiệm
-- Không bán hàng, không CTA, không giá/khuyến mãi
-
-[VOICEOVER {CAMEO_VOICE_ID}]
+[VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
 {d.get("text","").strip()}
-
-6.9–10.0s
-- Dừng thoại hoàn toàn
-- Nhạc nền fade-out 9.2–10.0s
 
 SAFETY / MIỄN TRỪ
 - {disclaimer}
 """.strip()
 
 def build_prompt_p2(shoe_type, tone):
-    # Prompt 2: CÓ cameo hình ảnh + voice
     s_pool = filter_scenes_by_shoe_type(shoe_type)
     d_pool = filter_dialogues(shoe_type, tone)
-
     s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
     d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
     disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin chi tiết vui lòng xem trong giỏ hàng."
@@ -229,26 +230,16 @@ VIDEO SETUP
 PRODUCT
 - shoe_type: {shoe_type}
 
-SCENE (1 video = 1 cảnh, không trùng)
+SCENE
 - {scene_line(s)}
 
-══════════════════════════════════
-AUDIO TIMELINE — ABSOLUTE
-══════════════════════════════════
+AUDIO TIMELINE
+0.0–1.0s: Không thoại, ambient + nhạc nền rất nhẹ
+1.0–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
+6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
 
-0.0–1.0s
-- Không thoại, chỉ ambient + nhạc nền rất nhẹ
-
-1.0–6.9s (VOICE ON)
-- Giọng nam ấm, đời thường, chia sẻ trải nghiệm
-- Không bán hàng, không CTA, không giá/khuyến mãi
-
-[VOICEOVER {CAMEO_VOICE_ID}]
+[VOICEOVER {CAMEO_VOICE_ID} | 1.0–6.9s]
 {d.get("text","").strip()}
-
-6.9–10.0s
-- Dừng thoại hoàn toàn
-- Nhạc nền fade-out 9.2–10.0s
 
 SAFETY / MIỄN TRỪ (PROMPT 2)
 - {disclaimer}
@@ -260,20 +251,15 @@ SAFETY / MIỄN TRỪ (PROMPT 2)
 left, right = st.columns([1, 1])
 
 with left:
-    uploaded = st.file_uploader("📤 Tải ảnh giày (để nhận diện shoe_type theo tên file)", type=["jpg", "png"])
+    uploaded = st.file_uploader("📤 Tải ảnh giày (nhận diện shoe_type theo tên file)", type=["jpg", "png"])
     mode = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=1)
     tone = st.selectbox("Chọn tone thoại", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
     count = st.slider("Số lượng prompt", 1, 10, 5)
 
-    if disclaimers_p1:
-        st.info("✅ Đã phát hiện disclaimer_prompt1.csv (Prompt 1 sẽ random theo file này).")
-    else:
-        st.caption("ℹ️ Chưa có disclaimer_prompt1.csv → Prompt 1 dùng danh sách dự phòng (vẫn an toàn).")
-
 with right:
     st.subheader("📌 Hướng dẫn nhanh")
-    st.write("1) Upload ảnh giày  •  2) Chọn Prompt 1/2  •  3) Chọn tone  •  4) Bấm SINH  •  5) COPY dán vào Sora/Veo")
-    st.caption("Prompt 1: không cameo hình ảnh (chỉ giày) • Prompt 2: có cameo • Cả 2 đều timeline thoại chuẩn & im hẳn 6.9–10s")
+    st.write("1) Upload ảnh  •  2) Chọn Prompt 1/2  •  3) Chọn tone  •  4) Bấm SINH  •  5) COPY dán vào Sora/Veo")
+    st.caption("Nếu disclaimer_prompt2.csv header khác, app vẫn tự đọc (đã fix).")
 
 st.divider()
 
@@ -284,27 +270,15 @@ if uploaded:
     btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
     if st.button(btn_label, use_container_width=True):
         for i in range(count):
-            if mode.startswith("PROMPT 1"):
-                p = build_prompt_p1(shoe_type, tone)
-            else:
-                p = build_prompt_p2(shoe_type, tone)
-
+            p = build_prompt_p1(shoe_type, tone) if mode.startswith("PROMPT 1") else build_prompt_p2(shoe_type, tone)
             st.markdown(f"### 🎞️ {mode} — #{i+1}")
             st.text_area("Prompt", p, height=360, key=f"prompt_{mode}_{i}")
             copy_button(p, key=f"copy_{mode}_{i}")
-
 else:
     st.warning("⬆️ Upload ảnh giày để bắt đầu tạo prompt.")
 
-# =========================
-# RESET
-# =========================
 st.divider()
-c1, c2 = st.columns([1, 3])
-with c1:
-    if st.button("♻️ Reset chống trùng"):
-        st.session_state.used_dialogue_ids.clear()
-        st.session_state.used_scene_ids.clear()
-        st.success("✅ Đã reset bộ nhớ chống trùng")
-with c2:
-    st.caption("Reset sẽ cho phép random lại từ đầu (cảnh/thoại có thể lặp lại sau khi reset).")
+if st.button("♻️ Reset chống trùng"):
+    st.session_state.used_dialogue_ids.clear()
+    st.session_state.used_scene_ids.clear()
+    st.success("✅ Đã reset bộ nhớ chống trùng")
