@@ -73,17 +73,43 @@ def sinh_thoai(tone):
 def tao_prompt(shoe_type, has_cameo):
     style, tone = chon_phong_cach_va_tone(shoe_type, has_cameo)
     voice = sinh_thoai(tone)
-    scene = f"Phong cách {style}: ánh sáng và bối cảnh phù hợp {shoe_type}, tone {tone}."
-    music = f"Nhạc nền phù hợp tone {tone}, fade-out từ 6.9–10s."
-    cameo = "Có cameo @phuongnghi18091991" if has_cameo else "Không cameo, chỉ giọng thoại cameo"
+
+    if has_cameo:
+        scene = f"[Scene] Cảnh quay phong cách {style}, cameo @phuongnghi18091991 xuất hiện với trang phục phù hợp {shoe_type}. " \
+                f"Ánh sáng tự nhiên, phản sáng nhẹ, tone {tone}. Camera xoay quanh nhân vật và đôi giày theo hướng cinematic."
+        camera = """[Camera Motion]
+0–1.5s: Cận cảnh logo giày, focus sâu.  
+1.5–3.5s: Dolly-in, ánh sáng phản sáng vàng.  
+3.5–6.9s: Orbit quanh cameo, flare tự nhiên.  
+6.9–10s: Zoom-out toàn cảnh, ánh sáng fade-out."""
+    else:
+        scene = f"[Scene] Cảnh quay sản phẩm phong cách {style}, không cameo, ánh sáng đồng đều, tone {tone}. " \
+                f"Giày lơ lửng 3D, camera xoay 360 độ chậm, phản sáng mặt sàn nhẹ."
+        camera = """[Camera Motion]
+0–2s: Close-up logo giày, ánh sáng vàng xiên.  
+2–5s: Orbit chậm, focus chuyển động.  
+5–6.9s: Dolly-in nửa vòng, ánh sáng flare.  
+6.9–10s: Fade-out ánh sáng nhẹ."""
+
+    music = f"[Music] Nhạc nền {tone.lower()}, fade-out từ 6.9–10s."
+    cameo = "CAMEO @phuongnghi18091991" if has_cameo else "Không cameo, chỉ voice cameo"
+
     return f"""
-🎬 PROMPT {'2' if has_cameo else '1'} – {cameo}
-[Scene] {scene}
-[Voiceover tone {tone} – 6.9s]
+🎬 PROMPT {'2' if has_cameo else '1'} – {cameo} | {shoe_type.upper()} | PHONG CÁCH {style} (4K HDR)
+
+[Product] Giày {shoe_type}, phong cách {style}.
+{scene}
+
+{camera}
+
+[Voiceover – @phuongnghi18091991 | Tone: {tone} | 6.9s]  
 {voice}
-[Music] {music}
-[Safety] 4K HDR, logo đúng chiều, không text/link/giá, hợp TikTok Shop.
+
+{music}
+[Quality] 4K HDR, không text/logo ngược, ánh sáng thật, motion mượt.  
+[Safety] Hợp chính sách TikTok Shop, không link, không giá, không khuyến mãi.
 """
+
 with tab1:
     st.header("🎬 Tạo Prompt")
     uploaded_file = st.file_uploader("Tải ảnh giày/dép", type=["jpg","png"])
