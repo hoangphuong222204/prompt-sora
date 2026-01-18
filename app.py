@@ -7,7 +7,7 @@ import io
 # 🔹 ĐỌC DỮ LIỆU TỪ CSV
 # =========================
 dialogues = pd.read_csv("dialogue_library.csv").to_dict(orient="records")
-scenes = pd.read_csv("scene_library_900.csv").to_dict(orient="records")
+scenes = pd.read_csv("scene_library.csv").to_dict(orient="records")
 
 used_dialogues = set()
 used_scenes = set()
