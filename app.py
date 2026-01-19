@@ -12,8 +12,10 @@ st.title("🎬 Sora Prompt Studio Pro – Director Edition")
 st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
-SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boot", "luxury"]  # <-- boot (không phải boots)
-CACHE_VERSION = "2026-01-19_v2"  # đổi string này mỗi lần muốn phá cache
+SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boot", "luxury"]
+
+# đổi version này mỗi lần update code để phá cache data
+CACHE_VERSION = "2026-01-19_v3"
 
 # =========================
 # COPY BUTTON (1 CLICK)
@@ -73,14 +75,20 @@ def normalize_shoe_type(x: str) -> str:
         return "boot"
     return s
 
+def ensure_sentence(s: str) -> str:
+    s = safe_text(s)
+    if not s:
+        return ""
+    # đảm bảo có dấu chấm kết câu
+    if s[-1] not in ".!?":
+        s += "."
+    return s
+
 def detect_shoe(name):
-    # Auto theo tên file (nếu tên file có keyword)
     n = (name or "").lower()
     if "loafer" in n or "loafers" in n or "horsebit" in n or "bit" in n:
         return "leather"
     if "oxford" in n or "derby" in n or "dress" in n:
-        return "leather"
-    if "da" in n:
         return "leather"
     if "sandal" in n or "dep" in n:
         return "sandals"
@@ -92,6 +100,8 @@ def detect_shoe(name):
         return "luxury"
     if "casual" in n:
         return "casual"
+    if "da" in n:
+        return "leather"
     return "sneaker"
 
 def scene_line(scene):
@@ -101,12 +111,11 @@ def scene_line(scene):
     ).strip(" •")
 
 # =========================
-# LOAD CSV (CACHE SAFE)
+# LOAD CSV
 # =========================
 @st.cache_data
 def load_dialogues(_v=CACHE_VERSION):
     df = pd.read_csv("dialogue_library.csv")
-    # normalize shoe_type trong data để match
     if "shoe_type" in df.columns:
         df["shoe_type"] = df["shoe_type"].astype(str).map(normalize_shoe_type)
     return df.to_dict(orient="records"), df.columns.tolist()
@@ -162,8 +171,21 @@ scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
 disclaimers_p1 = load_disclaimer_prompt1_optional()
 
+DISCLAIMER_P1_FALLBACK = [
+    "Nội dung chỉ mang tính chia sẻ trải nghiệm cá nhân.",
+    "Video mang tính minh họa trải nghiệm, không kêu gọi hành động.",
+    "Trải nghiệm có thể khác nhau tùy từng người và điều kiện sử dụng.",
+    "Thông tin trong video mang tính tham khảo.",
+    "Chi tiết cụ thể vui lòng xem theo từng sản phẩm.",
+    "Nội dung không đề cập mua bán, giá hay khuyến mãi.",
+    "Video ghi lại khoảnh khắc sử dụng thực tế, không cam kết tuyệt đối.",
+    "Mỗi mẫu có thông tin riêng, vui lòng tham khảo trang sản phẩm.",
+    "Nội dung không so sánh với sản phẩm khác.",
+    "Video tập trung trải nghiệm hình ảnh và chuyển động."
+]
+
 # =========================
-# MEMORY – CHỐNG TRÙNG + PROMPTS
+# MEMORY – CHỐNG TRÙNG
 # =========================
 if "used_dialogue_ids" not in st.session_state:
     st.session_state.used_dialogue_ids = set()
@@ -175,22 +197,34 @@ if "last_debug" not in st.session_state:
     st.session_state.last_debug = {}
 
 def pick_unique(pool, used_ids: set, key: str):
-    items = [x for x in pool if str(x.get(key, "")).strip() not in used_ids]
+    items = [x for x in pool if safe_text(x.get(key)) not in used_ids]
     if not items:
         used_ids.clear()
         items = pool[:]
     item = random.choice(items)
-    used_ids.add(str(item.get(key, "")).strip())
+    used_ids.add(safe_text(item.get(key)))
     return item
 
-def get_dialogue_text(row, tone):
-    # NOTE: row là dict -> check keys
+def filter_scenes_by_shoe_type(shoe_type):
+    stype = normalize_shoe_type(shoe_type)
+    f = [s for s in scenes if normalize_shoe_type(safe_text(s.get("shoe_type"))) == stype]
+    return f if f else scenes
+
+def filter_dialogues(shoe_type, tone):
+    stype = normalize_shoe_type(shoe_type)
+    tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
+    if not tone_f:
+        tone_f = dialogues
+    shoe_f = [d for d in tone_f if normalize_shoe_type(safe_text(d.get("shoe_type"))) == stype]
+    return shoe_f if shoe_f else tone_f
+
+def get_one_line(row, tone):
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row.keys():
             t = safe_text(row.get(col))
             if t:
-                return t
-
+                return ensure_sentence(t)
+    # fallback nếu row lạ
     fallback = {
         "Tự tin": [
             "Hôm nay mình đi ra ngoài với nhịp bước gọn gàng hơn.",
@@ -218,155 +252,125 @@ def get_dialogue_text(row, tone):
             "Nhìn tổng thể rất tự nhiên."
         ]
     }
-    arr = fallback.get(tone, fallback["Tự tin"])
+    return ensure_sentence(random.choice(fallback.get(tone, fallback["Tự tin"])))
+
+def build_dialogue_2_3_sentences(d_pool, tone):
+    # bốc 2–3 dòng khác nhau để đúng yêu cầu “2–3 câu”
     k = random.choice([2, 3])
-    return " ".join(random.sample(arr, k))
-
-def filter_scenes_by_shoe_type(shoe_type):
-    stype = normalize_shoe_type(shoe_type)
-    f = [s for s in scenes if normalize_shoe_type(safe_text(s.get("shoe_type"))) == stype]
-    return f if f else scenes
-
-def filter_dialogues(shoe_type, tone):
-    stype = normalize_shoe_type(shoe_type)
-    # tone match (strip)
-    tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
-    if not tone_f:
-        tone_f = dialogues
-    shoe_f = [d for d in tone_f if normalize_shoe_type(safe_text(d.get("shoe_type"))) == stype]
-    return shoe_f if shoe_f else tone_f
-
-DISCLAIMER_P1_FALLBACK = [
-    "Nội dung chỉ mang tính chia sẻ trải nghiệm cá nhân.",
-    "Video mang tính minh họa trải nghiệm, không kêu gọi hành động.",
-    "Trải nghiệm có thể khác nhau tùy từng người và điều kiện sử dụng.",
-    "Thông tin trong video mang tính tham khảo.",
-    "Chi tiết cụ thể vui lòng xem theo từng sản phẩm.",
-    "Nội dung không đề cập mua bán, giá hay khuyến mãi.",
-    "Video ghi lại khoảnh khắc sử dụng thực tế, không cam kết tuyệt đối.",
-    "Mỗi mẫu có thông tin riêng, vui lòng tham khảo trang sản phẩm.",
-    "Nội dung không so sánh với sản phẩm khác.",
-    "Video tập trung trải nghiệm hình ảnh và chuyển động."
-]
+    lines = []
+    local_used = set()
+    tries = 0
+    while len(lines) < k and tries < 30:
+        tries += 1
+        d = random.choice(d_pool) if d_pool else {}
+        did = safe_text(d.get("id")) or f"fallback_{tries}"
+        if did in local_used:
+            continue
+        local_used.add(did)
+        # vẫn ghi vào used_dialogue_ids global để chống trùng
+        if safe_text(d.get("id")):
+            st.session_state.used_dialogue_ids.add(safe_text(d.get("id")))
+        lines.append(get_one_line(d, tone))
+    # nếu thiếu thì thêm fallback
+    while len(lines) < k:
+        lines.append(get_one_line({}, tone))
+    return " ".join([x for x in lines if x])
 
 # =========================
-# BUILD PROMPTS
+# BUILD PROMPTS (CÓ KHÓA ẢNH + TÊN GIÀY)
 # =========================
-def build_prompt_p1(shoe_type, tone, debug=False):
+def build_prompt(mode, shoe_name, shoe_type, tone, debug=False):
+    shoe_type = normalize_shoe_type(shoe_type)
     s_pool = filter_scenes_by_shoe_type(shoe_type)
     d_pool = filter_dialogues(shoe_type, tone)
 
     s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
-    d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-    disclaimer = random.choice(disclaimers_p1 if disclaimers_p1 else DISCLAIMER_P1_FALLBACK)
+    dialogue_text = build_dialogue_2_3_sentences(d_pool, tone)
 
-    dialogue_text = get_dialogue_text(d, tone)
+    if mode == "PROMPT 1":
+        disclaimer = random.choice(disclaimers_p1 if disclaimers_p1 else DISCLAIMER_P1_FALLBACK)
+        header = "SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s"
+        timeline = """AUDIO TIMELINE
+0.0–1.2s: Không thoại, ambient + nhạc nền rất nhẹ
+1.2–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
+6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
+"""
+        voice_range = "1.2–6.9s"
+        cameo_rule = "- KHÔNG người • KHÔNG cameo • KHÔNG xuất hiện nhân vật"
+        disclaimer_title = "SAFETY / MIỄN TRỪ"
+    else:
+        disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin trong video mang tính tham khảo."
+        header = "SORA VIDEO PROMPT — PROMPT 2 (CÓ CAMEO) — TIMELINE LOCK 10s"
+        timeline = """AUDIO TIMELINE
+0.0–1.0s: Không thoại, ambient + nhạc nền rất nhẹ
+1.0–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
+6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
+"""
+        voice_range = "1.0–6.9s"
+        cameo_rule = "- Có cameo (xuất hiện) • giữ ổn định, không thay người"
+        disclaimer_title = "SAFETY / MIỄN TRỪ (PROMPT 2)"
 
     if debug:
         st.session_state.last_debug = {
-            "picked_dialogue_id": safe_text(d.get("id")),
-            "picked_dialogue_keys": list(d.keys()),
-            "picked_dialogue_preview": dialogue_text[:120],
-            "shoe_type_used": normalize_shoe_type(shoe_type),
+            "mode": mode,
+            "shoe_name": shoe_name,
+            "shoe_type_used": shoe_type,
             "tone_used": tone,
             "dialogue_pool_len": len(d_pool),
+            "scene_id": safe_text(s.get("id")),
+            "dialogue_preview": dialogue_text[:160]
         }
 
     return f"""
-SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
+{header}
 VOICE ID: {CAMEO_VOICE_ID}
 
 VIDEO SETUP
 - Video dọc 9:16 — 10s — Ultra Sharp 4K
 - Video thật, chuyển động mượt (không ảnh tĩnh)
-- KHÔNG người • KHÔNG cameo • KHÔNG xuất hiện nhân vật
+{cameo_rule}
 - NO text • NO logo • NO watermark
 - NO blur • NO haze • NO glow
 
+SHOE REFERENCE — ABSOLUTE LOCK
+- Use ONLY the uploaded shoe image as reference.
+- LOCK 100% shoe identity: toe shape, vamp, panels, stitching, sole, proportions.
+- NO redesign • NO deformation • NO guessing • NO color shift.
+- LACE RULE: if shoe has laces -> keep laces in ALL frames; if no laces -> ABSOLUTELY NO laces.
+
 PRODUCT
-- shoe_type: {normalize_shoe_type(shoe_type)}
+- shoe_name / SKU: {shoe_name}
+- shoe_type: {shoe_type}
 
 SCENE
 - {scene_line(s)}
 
-AUDIO TIMELINE
-0.0–1.2s: Không thoại, ambient + nhạc nền rất nhẹ
-1.2–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
-6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
+{timeline}
 
-[VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
+[VOICEOVER {CAMEO_VOICE_ID} | {voice_range}]
 {dialogue_text}
 
-SAFETY / MIỄN TRỪ
-- {disclaimer}
-""".strip()
-
-def build_prompt_p2(shoe_type, tone, debug=False):
-    s_pool = filter_scenes_by_shoe_type(shoe_type)
-    d_pool = filter_dialogues(shoe_type, tone)
-
-    s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
-    d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-    disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin trong video mang tính tham khảo."
-
-    dialogue_text = get_dialogue_text(d, tone)
-
-    if debug:
-        st.session_state.last_debug = {
-            "picked_dialogue_id": safe_text(d.get("id")),
-            "picked_dialogue_keys": list(d.keys()),
-            "picked_dialogue_preview": dialogue_text[:120],
-            "shoe_type_used": normalize_shoe_type(shoe_type),
-            "tone_used": tone,
-            "dialogue_pool_len": len(d_pool),
-        }
-
-    return f"""
-SORA VIDEO PROMPT — PROMPT 2 (CÓ CAMEO) — TIMELINE LOCK 10s
-CAMEO VOICE ID: {CAMEO_VOICE_ID}
-
-VIDEO SETUP
-- Video dọc 9:16 — 10s — Ultra Sharp 4K
-- Video thật, chuyển động mượt (không ảnh tĩnh)
-- NO text • NO logo • NO watermark
-- NO blur • NO haze • NO glow
-
-PRODUCT
-- shoe_type: {normalize_shoe_type(shoe_type)}
-
-SCENE
-- {scene_line(s)}
-
-AUDIO TIMELINE
-0.0–1.0s: Không thoại, ambient + nhạc nền rất nhẹ
-1.0–6.9s: VOICE ON (2–3 câu, đời thường, chia sẻ trải nghiệm)
-6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
-
-[VOICEOVER {CAMEO_VOICE_ID} | 1.0–6.9s]
-{dialogue_text}
-
-SAFETY / MIỄN TRỪ (PROMPT 2)
+{disclaimer_title}
 - {disclaimer}
 """.strip()
 
 # =========================
-# UI (GỌN)
+# UI
 # =========================
 left, right = st.columns([1, 1])
 
 with left:
     uploaded = st.file_uploader("📤 Tải ảnh giày", type=["jpg", "png", "jpeg"])
-    mode = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=1)
+    mode_ui = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=1)
     tone = st.selectbox("Chọn tone thoại", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
     count = st.slider("Số lượng prompt", 1, 10, 5)
-    debug_on = st.checkbox("🛠 DEBUG (xem dòng thoại đang pick)", value=False)
+    debug_on = st.checkbox("🛠 DEBUG (xem app đang pick gì)", value=False)
 
 with right:
     st.subheader("📌 Hướng dẫn nhanh")
-    st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
+    st.write("1) Upload ảnh • 2) Nhập TÊN GIÀY/SKU • 3) Chọn shoe_type • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
     st.caption(f"Dialogues columns: {dialogue_cols}")
     st.caption(f"Scenes columns: {scene_cols}")
-
     colA, colB = st.columns(2)
     with colA:
         if st.button("🔄 Reload thư viện (clear cache)", use_container_width=True):
@@ -376,33 +380,35 @@ with right:
             st.session_state.used_scene_ids.clear()
             st.success("✅ Đã clear cache & reset. Bấm SINH lại.")
     with colB:
-        if Path("disclaimer_prompt1.csv").exists():
-            st.success("✅ Có disclaimer_prompt1.csv")
-        else:
-            st.info("ℹ️ Chưa có disclaimer_prompt1.csv")
+        st.caption(f"CACHE_VERSION: {CACHE_VERSION}")
 
 st.divider()
 
 if uploaded:
     auto_type = detect_shoe(uploaded.name)
+    default_name = Path(uploaded.name).stem
+
+    shoe_name = st.text_input("Tên giày / SKU (rất quan trọng để Sora không đoán sai)", value=default_name).strip()
+    if not shoe_name:
+        st.error("❌ Chưa nhập Tên giày / SKU.")
+        st.stop()
 
     shoe_type_choice = st.selectbox(
-        "Chọn shoe_type (Auto hoặc chọn tay)",
+        "Chọn shoe_type (Auto hoặc chọn tay — nên chọn tay cho đúng)",
         ["Auto"] + SHOE_TYPES,
         index=0
     )
     shoe_type = auto_type if shoe_type_choice == "Auto" else shoe_type_choice
     shoe_type = normalize_shoe_type(shoe_type)
 
-    st.success(f"👟 shoe_type: **{shoe_type}** (Auto đoán theo tên file: {auto_type})")
-    st.caption("⚠️ Auto chỉ dựa tên file. Nếu ảnh loafer nhưng tên file không có 'loafer/horsebit' thì phải chọn tay 'leather'.")
+    mode = "PROMPT 1" if mode_ui.startswith("PROMPT 1") else "PROMPT 2"
+    st.success(f"👟 mode: **{mode}** | shoe_name: **{shoe_name}** | shoe_type: **{shoe_type}** (Auto theo tên file: {auto_type})")
 
-    btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
+    btn_label = "🎬 SINH PROMPT 1" if mode == "PROMPT 1" else "🎬 SINH PROMPT 2"
     if st.button(btn_label, use_container_width=True):
         arr = []
         for _ in range(count):
-            p = build_prompt_p1(shoe_type, tone, debug=debug_on) if mode.startswith("PROMPT 1") else build_prompt_p2(shoe_type, tone, debug=debug_on)
-            arr.append(p)
+            arr.append(build_prompt(mode, shoe_name, shoe_type, tone, debug=debug_on))
         st.session_state.generated_prompts = arr
 
     if debug_on and st.session_state.last_debug:
@@ -414,7 +420,7 @@ if uploaded:
         tabs = st.tabs([f"{i+1}" for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
-                st.text_area("Prompt", prompts[i], height=380, key=f"view_{i}")
+                st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
                 copy_button(prompts[i], key=f"copy_view_{i}")
 else:
     st.warning("⬆️ Upload ảnh giày để bắt đầu.")
