@@ -20,7 +20,6 @@ SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "lux
 
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
-
 # =========================
 # COPY BUTTON (1 CLICK)
 # =========================
@@ -48,7 +47,6 @@ def copy_button(text: str, key: str):
     """
     st.components.v1.html(html, height=42)
 
-
 # =========================
 # FILE CHECK
 # =========================
@@ -56,7 +54,6 @@ missing = [f for f in REQUIRED_FILES if not Path(f).exists()]
 if missing:
     st.error(f"❌ Thiếu file: {', '.join(missing)} (phải nằm cùng thư mục app.py)")
     st.stop()
-
 
 # =========================
 # LOAD CSV
@@ -110,7 +107,6 @@ def load_disclaimer_prompt1_optional():
     arr = [x.strip() for x in arr if x.strip()]
     return arr if arr else None
 
-
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
@@ -140,7 +136,6 @@ if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
-
 
 # =========================
 # UTILS
@@ -184,13 +179,11 @@ def filter_dialogues(shoe_type: str, tone: str):
     shoe_f = [d for d in tone_f if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
     return shoe_f if shoe_f else tone_f
 
-
 # =========================
 # HEURISTIC DETECT from filename (fallback)
 # =========================
 def detect_shoe_from_filename(name: str) -> str:
     n = (name or "").lower()
-    # Vietnamese & English keywords
     rules = [
         ("boots",  ["boot", "chelsea", "combat", "martin"]),
         ("sandals",["sandal", "sandals", "dep", "dép", "slipper", "slides"]),
@@ -205,15 +198,10 @@ def detect_shoe_from_filename(name: str) -> str:
             return shoe_type
     return "sneaker"
 
-
 # =========================
 # GEMINI VISION DETECT
 # =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[str]:
-    """
-    Return one of SHOE_TYPES or None.
-    Uses google-generativeai.
-    """
     api_key = (api_key or "").strip()
     if not api_key:
         return None
@@ -236,12 +224,10 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[str]:
         )
         resp = model.generate_content([prompt, img])
         text = (resp.text or "").strip().lower()
-        # normalize
         text = re.sub(r"[^a-z_]", "", text)
         return text if text in SHOE_TYPES else None
     except Exception:
         return None
-
 
 # =========================
 # DIALOGUE: ensure 3 distinct sentences
@@ -335,47 +321,36 @@ TONE_BANK = {
 }
 
 def get_dialogue_text(row: dict, tone: str) -> str:
-    """
-    Priority:
-    1) If CSV has a long dialogue -> split into 3 sentences if possible
-    2) Else generate 3 sentences from tone bank (open/mid/close) distinct
-    """
-    # 1) Try pull from CSV
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row:
             t = safe_text(row.get(col))
             if t:
-                # If it's already 2-3 sentences, keep; else expand with tone bank
                 parts = [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
                 if len(parts) >= 3:
                     return f"{parts[0]}. {parts[1]}. {parts[2]}."
                 if len(parts) == 2:
-                    # add one more distinct
                     bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
                     extra = random.choice(bank["close"])
                     return f"{parts[0]}. {parts[1]}. {extra}"
                 if len(parts) == 1:
-                    # enrich with 2 more distinct
                     bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
                     mid = random.choice(bank["mid"])
                     close = random.choice(bank["close"])
                     base = parts[0]
-                    # avoid near-duplicate
                     if close.lower() in base.lower():
                         close = random.choice([x for x in bank["close"] if x != close])
                     return f"{base}. {mid} {close}"
-    # 2) Pure generate
     bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
     a = random.choice(bank["open"])
     b = random.choice([x for x in bank["mid"] if x != a])
     c = random.choice([x for x in bank["close"] if x != a and x != b])
     return f"{a} {b} {c}"
 
-
 # =========================
 # PROMPTS
 # =========================
-def build_prompt_p1(shoe_type: str, tone: str, scene: dict, dialogue_text: str, disclaimer: str, shoe_name: str) -> str:
+def build_prompt_p1(shoe_type: str, tone: str, scene: dict, dialogue_text: str, shoe_name: str) -> str:
+    # ✅ Prompt 1: KHÔNG cần miễn trừ (đúng ý chồng)
     return f"""
 SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
 VOICE ID: {CAMEO_VOICE_ID}
@@ -407,9 +382,6 @@ AUDIO TIMELINE
 
 [VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
 {dialogue_text}
-
-SAFETY / MIỄN TRỪ
-- {disclaimer}
 """.strip()
 
 def build_prompt_p2(shoe_type: str, tone: str, scene: dict, dialogue_text: str, disclaimer: str, shoe_name: str) -> str:
@@ -452,13 +424,12 @@ SAFETY / MIỄN TRỪ (PROMPT 2)
 - {disclaimer}
 """.strip()
 
-
 # =========================
 # SIDEBAR: GEMINI KEY
 # =========================
 with st.sidebar:
     st.markdown("### 🔑 Gemini API Key (tùy chọn)")
-    st.caption("Dùng cho AI Vision detect shoe_type. Không có key vẫn chạy (fallback theo tên file).")
+    st.caption("Dùng cho AI Vision detect shoe_type. Không có key vẫn chạy (fallback Auto).")
 
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
     c1, c2 = st.columns(2)
@@ -475,7 +446,6 @@ with st.sidebar:
         st.success("🔐 Key đang hoạt động (session)")
     else:
         st.warning("Chưa có key (app vẫn chạy bình thường).")
-
 
 # =========================
 # UI
@@ -496,46 +466,53 @@ with right:
     if Path("disclaimer_prompt1.csv").exists():
         st.success("✅ Đã có disclaimer_prompt1.csv (Prompt 1 sẽ random theo file).")
     else:
-        st.info("ℹ️ Chưa có disclaimer_prompt1.csv (Prompt 1 dùng danh sách dự phòng).")
+        st.info("ℹ️ Prompt 1: KHÔNG cần miễn trừ (đã bỏ).")
 
 st.divider()
 
 if uploaded:
     shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
-
-    # Load image for Gemini
     img = Image.open(uploaded).convert("RGB")
 
-    # Toggle AI Vision
-    use_ai = st.toggle("🤖 AI Vision detect shoe_type (Gemini)", value=True)
-
-    # Detect
-    detected_ai = None
-    if use_ai:
-        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
-
+    # ===== Detect (AI + filename) =====
     detected_filename = detect_shoe_from_filename(uploaded.name)
 
-    # shoe_type selector
-    shoe_type_choice = st.selectbox(
-        "Chọn shoe_type (Auto / AI / hoặc chọn tay)",
-        ["Auto", "AI"] + SHOE_TYPES,
-        index=0
+    detected_ai = None
+    ai_error = ""
+    if st.session_state.gemini_api_key.strip():
+        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
+        if detected_ai is None:
+            ai_error = "Gemini detect lỗi → fallback Auto theo tên file."
+    else:
+        ai_error = "Chưa có Gemini key → AI không chạy, fallback Auto theo tên file."
+
+    # ===== Mode selector: Auto / AI / Chọn tay =====
+    default_mode = "AI" if detected_ai else "Auto"
+    shoe_mode = st.selectbox(
+        "Chọn chế độ shoe_type",
+        ["AI", "Auto", "Chọn tay"],
+        index=["AI", "Auto", "Chọn tay"].index(default_mode),
+        help="AI: Gemini Vision | Auto: đoán theo tên file | Chọn tay: bạn tự chọn"
     )
 
-    if shoe_type_choice == "AI":
-        shoe_type = detected_ai if detected_ai else detected_filename
+    if shoe_mode == "Chọn tay":
+        # mặc định ưu tiên leather nếu có (hay dùng cho giày tây)
+        default_idx = SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0
+        shoe_type = st.selectbox("Chọn shoe_type (tay)", SHOE_TYPES, index=default_idx)
+        st.success(f"👟 Chọn tay: **{shoe_type}**")
+
+    elif shoe_mode == "AI":
         if detected_ai:
+            shoe_type = detected_ai
             st.success(f"👟 AI detect shoe_type: **{shoe_type}**")
         else:
-            st.warning("Gemini detect lỗi/thiếu thư viện/key → fallback theo tên file.")
-            st.info(f"Fallback (tên file): **{detected_filename}**")
-    elif shoe_type_choice == "Auto":
+            shoe_type = detected_filename
+            st.warning(ai_error)
+            st.info(f"Fallback Auto (tên file): **{detected_filename}**")
+
+    else:  # Auto
         shoe_type = detected_filename
         st.info(f"👟 Auto theo tên file: **{shoe_type}**")
-    else:
-        shoe_type = shoe_type_choice
-        st.success(f"👟 Chọn tay: **{shoe_type}**")
 
     st.caption(f"shoe_name (tên file): {shoe_name}")
 
@@ -549,14 +526,12 @@ if uploaded:
             s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
-            # Make dialogue always 3 sentences, varied
             dialogue_text = get_dialogue_text(d, tone)
 
             if mode.startswith("PROMPT 1"):
-                disclaimer = random.choice(disclaimers_p1 if disclaimers_p1 else DISCLAIMER_P1_FALLBACK)
-                p = build_prompt_p1(shoe_type, tone, s, dialogue_text, disclaimer, shoe_name)
+                p = build_prompt_p1(shoe_type, tone, s, dialogue_text, shoe_name)
             else:
-                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin chi tiết vui lòng xem trong giỏ hàng."
+                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin trong video mang tính tham khảo."
                 p = build_prompt_p2(shoe_type, tone, s, dialogue_text, disclaimer, shoe_name)
 
             arr.append(p)
