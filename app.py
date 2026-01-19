@@ -3,8 +3,9 @@ import pandas as pd
 import random
 import base64
 import re
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 from PIL import Image
 
@@ -18,7 +19,9 @@ st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikT
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
 
+BASE_DIR = Path(__file__).parent if "__file__" in globals() else Path(".")
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
+
 
 # =========================
 # COPY BUTTON (1 CLICK)
@@ -47,31 +50,48 @@ def copy_button(text: str, key: str):
     """
     st.components.v1.html(html, height=42)
 
+
 # =========================
 # FILE CHECK
 # =========================
-missing = [f for f in REQUIRED_FILES if not Path(f).exists()]
+missing = [f for f in REQUIRED_FILES if not (BASE_DIR / f).exists()]
 if missing:
     st.error(f"❌ Thiếu file: {', '.join(missing)} (phải nằm cùng thư mục app.py)")
     st.stop()
 
+
 # =========================
-# LOAD CSV
+# LOAD CSV (robust)
 # =========================
+def _ensure_id(df: pd.DataFrame) -> pd.DataFrame:
+    cols = [c.strip() for c in df.columns.tolist()]
+    df.columns = cols
+    if "id" not in df.columns:
+        df.insert(0, "id", [str(i + 1) for i in range(len(df))])
+    # id luôn là string
+    df["id"] = df["id"].astype(str)
+    return df
+
+
 @st.cache_data
 def load_dialogues():
-    df = pd.read_csv("dialogue_library.csv")
+    df = pd.read_csv(str(BASE_DIR / "dialogue_library.csv"))
+    df = _ensure_id(df)
     return df.to_dict(orient="records"), [c.strip() for c in df.columns.tolist()]
+
 
 @st.cache_data
 def load_scenes():
-    df = pd.read_csv("scene_library.csv")
+    df = pd.read_csv(str(BASE_DIR / "scene_library.csv"))
+    df = _ensure_id(df)
     return df.to_dict(orient="records"), [c.strip() for c in df.columns.tolist()]
+
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = pd.read_csv("disclaimer_prompt2.csv")
+    df = pd.read_csv(str(BASE_DIR / "disclaimer_prompt2.csv"))
     cols = [c.strip() for c in df.columns.tolist()]
+    df.columns = cols
 
     if "disclaimer" in cols:
         arr = df["disclaimer"].dropna().astype(str).tolist()
@@ -91,39 +111,11 @@ def load_disclaimer_prompt2_flexible():
     arr = df[last].dropna().astype(str).tolist()
     return [x.strip() for x in arr if x.strip()]
 
-@st.cache_data
-def load_disclaimer_prompt1_optional():
-    p = Path("disclaimer_prompt1.csv")
-    if not p.exists():
-        return None
-    df = pd.read_csv(str(p))
-    cols = [c.strip() for c in df.columns.tolist()]
-    if "disclaimer" in cols:
-        arr = df["disclaimer"].dropna().astype(str).tolist()
-        arr = [x.strip() for x in arr if x.strip()]
-        return arr if arr else None
-    last = cols[-1]
-    arr = df[last].dropna().astype(str).tolist()
-    arr = [x.strip() for x in arr if x.strip()]
-    return arr if arr else None
 
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
-disclaimers_p1 = load_disclaimer_prompt1_optional()
 
-DISCLAIMER_P1_FALLBACK = [
-    "Nội dung chỉ mang tính chia sẻ trải nghiệm cá nhân.",
-    "Video mang tính minh họa trải nghiệm, không kêu gọi hành động.",
-    "Trải nghiệm có thể khác nhau tùy từng người và điều kiện sử dụng.",
-    "Thông tin trong video mang tính tham khảo.",
-    "Chi tiết cụ thể vui lòng xem theo từng sản phẩm.",
-    "Nội dung không đề cập mua bán, giá hay khuyến mãi.",
-    "Video ghi lại khoảnh khắc sử dụng thực tế, không cam kết tuyệt đối.",
-    "Mỗi mẫu có thông tin riêng, vui lòng tham khảo trang sản phẩm.",
-    "Nội dung không so sánh với sản phẩm khác.",
-    "Video tập trung trải nghiệm hình ảnh và chuyển động."
-]
 
 # =========================
 # SESSION – ANTI DUP
@@ -136,6 +128,7 @@ if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
+
 
 # =========================
 # UTILS
@@ -153,7 +146,15 @@ def safe_text(v) -> str:
         return ""
     return s
 
-def pick_unique(pool, used_ids: set, key: str):
+
+def pick_unique(pool: List[dict], used_ids: set, key: str):
+    if not pool:
+        return {}
+
+    # key không có -> fallback theo index random
+    if key not in pool[0]:
+        return random.choice(pool)
+
     items = [x for x in pool if str(x.get(key, "")).strip() not in used_ids]
     if not items:
         used_ids.clear()
@@ -162,22 +163,44 @@ def pick_unique(pool, used_ids: set, key: str):
     used_ids.add(str(item.get(key, "")).strip())
     return item
 
+
 def scene_line(scene: dict) -> str:
-    return (
-        f"{safe_text(scene.get('lighting'))} • {safe_text(scene.get('location'))} • "
-        f"{safe_text(scene.get('motion'))} • {safe_text(scene.get('weather'))} • mood {safe_text(scene.get('mood'))}"
-    ).strip(" •")
+    # không bắt buộc đủ cột
+    parts = [
+        safe_text(scene.get("lighting")),
+        safe_text(scene.get("location")),
+        safe_text(scene.get("motion")),
+        safe_text(scene.get("weather")),
+    ]
+    mood = safe_text(scene.get("mood"))
+    if mood:
+        parts.append(f"mood {mood}")
+    return " • ".join([p for p in parts if p]).strip(" •")
+
 
 def filter_scenes_by_shoe_type(shoe_type: str):
-    f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
-    return f if f else scenes
+    # nếu scene_library có cột shoe_type -> filter, không thì trả về all
+    if scenes and "shoe_type" in scenes[0]:
+        f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
+        return f if f else scenes
+    return scenes
+
 
 def filter_dialogues(shoe_type: str, tone: str):
-    tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
-    if not tone_f:
-        tone_f = dialogues
-    shoe_f = [d for d in tone_f if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
-    return shoe_f if shoe_f else tone_f
+    pool = dialogues
+
+    # filter tone nếu có cột tone
+    if dialogues and "tone" in dialogues[0]:
+        tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
+        pool = tone_f if tone_f else dialogues
+
+    # filter shoe_type nếu có cột shoe_type
+    if pool and "shoe_type" in pool[0]:
+        shoe_f = [d for d in pool if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
+        pool = shoe_f if shoe_f else pool
+
+    return pool
+
 
 # =========================
 # HEURISTIC DETECT from filename (fallback)
@@ -187,47 +210,92 @@ def detect_shoe_from_filename(name: str) -> str:
     rules = [
         ("boots",  ["boot", "chelsea", "combat", "martin"]),
         ("sandals",["sandal", "sandals", "dep", "dép", "slipper", "slides"]),
-        ("leather",["loafer", "loafers", "moc", "moccasin", "horsebit", "oxford", "derby", "tassel", "brogue", "giaytay", "giày tây", "giay_da", "giayda", "da"]),
+        ("leather",["loafer", "loafers", "moc", "moccasin", "horsebit", "oxford", "derby", "tassel", "brogue",
+                    "giaytay", "giày tây", "giay_da", "giayda", "giay da"]),
         ("runner", ["runner", "running", "jog", "marathon", "gym", "train", "thethao", "thể thao", "sport"]),
         ("casual", ["casual", "daily", "everyday", "basic"]),
         ("luxury", ["lux", "premium", "quietlux", "quiet_lux", "highend", "boutique"]),
-        ("sneaker",["sneaker", "sneakers", "kicks", "street"])
+        ("sneaker",["sneaker", "sneakers", "kicks", "street"]),
     ]
     for shoe_type, keys in rules:
         if any(k in n for k in keys):
             return shoe_type
     return "sneaker"
 
+
 # =========================
-# GEMINI VISION DETECT
+# GEMINI VISION DETECT (OPTIONAL)
 # =========================
-def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[str]:
+def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[Dict[str, Any]]:
+    """
+    Returns: {"shoe_type": <one of SHOE_TYPES or "unknown">, "confidence": float, "raw": str}
+    If library missing / API error -> return None
+    """
     api_key = (api_key or "").strip()
     if not api_key:
         return None
 
     try:
-        import google.generativeai as genai
+        import google.generativeai as genai  # pip: google-generativeai
     except Exception:
         return None
 
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-1.5-flash")
-        prompt = (
-            "Bạn là hệ thống phân loại. Nhìn ảnh giày và chỉ trả về 1 nhãn duy nhất trong danh sách sau:\n"
-            f"{', '.join(SHOE_TYPES)}\n\n"
-            "Quy tắc:\n"
-            "- Trả đúng 1 từ nhãn.\n"
-            "- Không giải thích.\n"
-            "- Nếu không chắc, chọn nhãn gần nhất.\n"
-        )
+
+        prompt = f"""
+Bạn là hệ thống phân loại shoe_type cho TikTok prompts.
+
+Hãy nhìn ảnh giày và trả về JSON DUY NHẤT theo format:
+{{
+  "shoe_type": "sneaker|runner|leather|casual|sandals|boots|luxury|unknown",
+  "confidence": 0.0-1.0
+}}
+
+Quy tắc:
+- "leather" cho loafer/oxford/derby/dress shoes.
+- "runner" cho running/training.
+- "sneaker" cho street sneaker.
+- "luxury" nếu rõ phong cách high-end.
+- Nếu không chắc: "unknown" và confidence thấp.
+Chỉ trả JSON, không thêm chữ khác.
+""".strip()
+
         resp = model.generate_content([prompt, img])
-        text = (resp.text or "").strip().lower()
-        text = re.sub(r"[^a-z_]", "", text)
-        return text if text in SHOE_TYPES else None
+        raw = (resp.text or "").strip()
+
+        # cố parse JSON trong mọi trường hợp
+        m = re.search(r"\{.*\}", raw, flags=re.S)
+        if not m:
+            return {"shoe_type": "unknown", "confidence": 0.0, "raw": raw}
+
+        obj = json.loads(m.group(0))
+        shoe_type = str(obj.get("shoe_type", "unknown")).strip().lower()
+        conf = float(obj.get("confidence", 0.0) or 0.0)
+
+        if shoe_type not in SHOE_TYPES and shoe_type != "unknown":
+            shoe_type = "unknown"
+        conf = max(0.0, min(1.0, conf))
+
+        return {"shoe_type": shoe_type, "confidence": conf, "raw": raw}
+
     except Exception:
         return None
+
+
+def hybrid_pick(ai_result: Optional[dict], fallback_type: str) -> str:
+    if not ai_result or not isinstance(ai_result, dict):
+        return fallback_type
+
+    ai_type = str(ai_result.get("shoe_type", "unknown")).strip().lower()
+    conf = float(ai_result.get("confidence", 0.0) or 0.0)
+
+    if ai_type in SHOE_TYPES and conf >= 0.60:
+        return ai_type
+
+    return fallback_type
+
 
 # =========================
 # DIALOGUE: ensure 3 distinct sentences
@@ -320,6 +388,7 @@ TONE_BANK = {
     }
 }
 
+
 def get_dialogue_text(row: dict, tone: str) -> str:
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row:
@@ -337,20 +406,25 @@ def get_dialogue_text(row: dict, tone: str) -> str:
                     mid = random.choice(bank["mid"])
                     close = random.choice(bank["close"])
                     base = parts[0]
-                    if close.lower() in base.lower():
-                        close = random.choice([x for x in bank["close"] if x != close])
                     return f"{base}. {mid} {close}"
+
     bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
     a = random.choice(bank["open"])
-    b = random.choice([x for x in bank["mid"] if x != a])
-    c = random.choice([x for x in bank["close"] if x != a and x != b])
+    b = random.choice(bank["mid"])
+    c = random.choice(bank["close"])
+    # tránh lặp y chang trong 3 câu
+    while b == a and len(bank["mid"]) > 1:
+        b = random.choice(bank["mid"])
+    while c in (a, b) and len(bank["close"]) > 1:
+        c = random.choice(bank["close"])
     return f"{a} {b} {c}"
+
 
 # =========================
 # PROMPTS
 # =========================
 def build_prompt_p1(shoe_type: str, tone: str, scene: dict, dialogue_text: str, shoe_name: str) -> str:
-    # ✅ Prompt 1: KHÔNG cần miễn trừ (đúng ý chồng)
+    # ✅ Prompt 1: KHÔNG cần miễn trừ
     return f"""
 SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
 VOICE ID: {CAMEO_VOICE_ID}
@@ -383,6 +457,7 @@ AUDIO TIMELINE
 [VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
 {dialogue_text}
 """.strip()
+
 
 def build_prompt_p2(shoe_type: str, tone: str, scene: dict, dialogue_text: str, disclaimer: str, shoe_name: str) -> str:
     return f"""
@@ -424,6 +499,7 @@ SAFETY / MIỄN TRỪ (PROMPT 2)
 - {disclaimer}
 """.strip()
 
+
 # =========================
 # SIDEBAR: GEMINI KEY
 # =========================
@@ -432,127 +508,4 @@ with st.sidebar:
     st.caption("Dùng cho AI Vision detect shoe_type. Không có key vẫn chạy (fallback Auto).")
 
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("💾 Lưu key (phiên này)", use_container_width=True):
-            st.session_state.gemini_api_key = api_key_input.strip()
-            st.success("✅ Đã lưu key trong phiên hiện tại.")
-    with c2:
-        if st.button("🗑️ Xóa key", use_container_width=True):
-            st.session_state.gemini_api_key = ""
-            st.info("Đã xóa key.")
-
-    if st.session_state.gemini_api_key:
-        st.success("🔐 Key đang hoạt động (session)")
-    else:
-        st.warning("Chưa có key (app vẫn chạy bình thường).")
-
-# =========================
-# UI
-# =========================
-left, right = st.columns([1, 1])
-
-with left:
-    uploaded = st.file_uploader("📤 Tải ảnh giày", type=["jpg", "png", "jpeg"])
-    mode = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=1)
-    tone = st.selectbox("Chọn tone thoại", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
-    count = st.slider("Số lượng prompt", 1, 10, 5)
-
-with right:
-    st.subheader("📌 Hướng dẫn nhanh")
-    st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
-    st.caption(f"Dialogues columns: {dialogue_cols}")
-    st.caption(f"Scenes columns: {scene_cols}")
-    if Path("disclaimer_prompt1.csv").exists():
-        st.success("✅ Đã có disclaimer_prompt1.csv (Prompt 1 sẽ random theo file).")
-    else:
-        st.info("ℹ️ Prompt 1: KHÔNG cần miễn trừ (đã bỏ).")
-
-st.divider()
-
-if uploaded:
-    shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
-    img = Image.open(uploaded).convert("RGB")
-
-    # ===== Detect (AI + filename) =====
-    detected_filename = detect_shoe_from_filename(uploaded.name)
-
-    detected_ai = None
-    ai_error = ""
-    if st.session_state.gemini_api_key.strip():
-        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
-        if detected_ai is None:
-            ai_error = "Gemini detect lỗi → fallback Auto theo tên file."
-    else:
-        ai_error = "Chưa có Gemini key → AI không chạy, fallback Auto theo tên file."
-
-    # ===== Mode selector: Auto / AI / Chọn tay =====
-    default_mode = "AI" if detected_ai else "Auto"
-    shoe_mode = st.selectbox(
-        "Chọn chế độ shoe_type",
-        ["AI", "Auto", "Chọn tay"],
-        index=["AI", "Auto", "Chọn tay"].index(default_mode),
-        help="AI: Gemini Vision | Auto: đoán theo tên file | Chọn tay: bạn tự chọn"
-    )
-
-    if shoe_mode == "Chọn tay":
-        # mặc định ưu tiên leather nếu có (hay dùng cho giày tây)
-        default_idx = SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0
-        shoe_type = st.selectbox("Chọn shoe_type (tay)", SHOE_TYPES, index=default_idx)
-        st.success(f"👟 Chọn tay: **{shoe_type}**")
-
-    elif shoe_mode == "AI":
-        if detected_ai:
-            shoe_type = detected_ai
-            st.success(f"👟 AI detect shoe_type: **{shoe_type}**")
-        else:
-            shoe_type = detected_filename
-            st.warning(ai_error)
-            st.info(f"Fallback Auto (tên file): **{detected_filename}**")
-
-    else:  # Auto
-        shoe_type = detected_filename
-        st.info(f"👟 Auto theo tên file: **{shoe_type}**")
-
-    st.caption(f"shoe_name (tên file): {shoe_name}")
-
-    btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
-    if st.button(btn_label, use_container_width=True):
-        arr = []
-        for _ in range(count):
-            s_pool = filter_scenes_by_shoe_type(shoe_type)
-            d_pool = filter_dialogues(shoe_type, tone)
-
-            s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
-            d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-
-            dialogue_text = get_dialogue_text(d, tone)
-
-            if mode.startswith("PROMPT 1"):
-                p = build_prompt_p1(shoe_type, tone, s, dialogue_text, shoe_name)
-            else:
-                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin trong video mang tính tham khảo."
-                p = build_prompt_p2(shoe_type, tone, s, dialogue_text, disclaimer, shoe_name)
-
-            arr.append(p)
-
-        st.session_state.generated_prompts = arr
-
-    prompts = st.session_state.get("generated_prompts", [])
-    if prompts:
-        st.markdown("### ✅ Chọn prompt (bấm số)")
-        tabs = st.tabs([f"{i+1}" for i in range(len(prompts))])
-        for i, tab in enumerate(tabs):
-            with tab:
-                st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
-                copy_button(prompts[i], key=f"copy_view_{i}")
-
-else:
-    st.warning("⬆️ Upload ảnh giày để bắt đầu.")
-
-st.divider()
-if st.button("♻️ Reset chống trùng"):
-    st.session_state.used_dialogue_ids.clear()
-    st.session_state.used_scene_ids.clear()
-    st.session_state.generated_prompts = []
-    st.success("✅ Đã reset")
+    c1
