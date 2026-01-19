@@ -1,5 +1,4 @@
-from pathlib import Path
-app_code = r'''import streamlit as st
+import streamlit as st
 import pandas as pd
 import random
 import base64
@@ -612,6 +611,3 @@ if st.button("♻️ Reset chống trùng"):
     st.session_state.used_scene_ids.clear()
     st.session_state.generated_prompts = []
     st.success("✅ Đã reset")
-'''
-Path("/mnt/data/app.py").write_text(app_code, encoding="utf-8")
-len(app_code.splitlines()), "/mnt/data/app.py"
