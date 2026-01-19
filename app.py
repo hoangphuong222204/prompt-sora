@@ -508,4 +508,127 @@ with st.sidebar:
     st.caption("Dùng cho AI Vision detect shoe_type. Không có key vẫn chạy (fallback Auto).")
 
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
-    c1
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("💾 Lưu key (phiên này)", use_container_width=True):
+            st.session_state.gemini_api_key = api_key_input.strip()
+            st.success("✅ Đã lưu key trong phiên hiện tại.")
+    with c2:
+        if st.button("🗑️ Xóa key", use_container_width=True):
+            st.session_state.gemini_api_key = ""
+            st.info("Đã xóa key.")
+
+    if st.session_state.gemini_api_key:
+        st.success("🔐 Key đang hoạt động (session)")
+    else:
+        st.warning("Chưa có key (app vẫn chạy bình thường).")
+
+
+# =========================
+# UI
+# =========================
+left, right = st.columns([1, 1])
+
+with left:
+    uploaded = st.file_uploader("📤 Tải ảnh giày", type=["jpg", "png", "jpeg"])
+    mode = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=1)
+    tone = st.selectbox("Chọn tone thoại", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
+    count = st.slider("Số lượng prompt", 1, 10, 5)
+
+with right:
+    st.subheader("📌 Hướng dẫn nhanh")
+    st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
+    st.caption(f"Dialogues columns: {dialogue_cols}")
+    st.caption(f"Scenes columns: {scene_cols}")
+    st.info("ℹ️ Prompt 1: KHÔNG cần miễn trừ (đã bỏ). Prompt 2: có miễn trừ từ disclaimer_prompt2.csv")
+
+st.divider()
+
+if uploaded:
+    shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
+    img = Image.open(uploaded).convert("RGB")
+
+    # ===== Detect (AI + filename) =====
+    detected_filename = detect_shoe_from_filename(uploaded.name)
+
+    detected_ai = None
+    ai_error = ""
+    if st.session_state.gemini_api_key.strip():
+        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
+        if detected_ai is None:
+            ai_error = "Gemini detect lỗi/thiếu thư viện → fallback Auto theo tên file."
+    else:
+        ai_error = "Chưa có Gemini key → AI không chạy, fallback Auto theo tên file."
+
+    # ===== Mode selector: AI / Auto / Chọn tay =====
+    default_mode = "AI" if detected_ai else "Auto"
+    shoe_mode = st.selectbox(
+        "Chọn chế độ shoe_type",
+        ["AI", "Auto", "Chọn tay"],
+        index=["AI", "Auto", "Chọn tay"].index(default_mode),
+        help="AI: Gemini Vision | Auto: đoán theo tên file | Chọn tay: bạn tự chọn"
+    )
+
+    if shoe_mode == "Chọn tay":
+        default_idx = SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0
+        shoe_type = st.selectbox("Chọn shoe_type (tay)", SHOE_TYPES, index=default_idx)
+        st.success(f"👟 Chọn tay: **{shoe_type}**")
+
+    elif shoe_mode == "AI":
+        if detected_ai and isinstance(detected_ai, dict):
+            shoe_type = hybrid_pick(detected_ai, detected_filename)
+            conf = float(detected_ai.get("confidence", 0.0) or 0.0)
+            st.success(f"👟 AI detect shoe_type: **{shoe_type}** (conf: {conf:.2f})")
+            if shoe_type == detected_filename and (detected_ai.get("shoe_type") in ["unknown", None] or conf < 0.60):
+                st.warning("AI chưa chắc → dùng fallback theo tên file.")
+        else:
+            shoe_type = detected_filename
+            st.warning(ai_error)
+            st.info(f"Fallback Auto (tên file): **{detected_filename}**")
+
+    else:  # Auto
+        shoe_type = detected_filename
+        st.info(f"👟 Auto theo tên file: **{shoe_type}**")
+
+    st.caption(f"shoe_name (tên file): {shoe_name}")
+
+    btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
+    if st.button(btn_label, use_container_width=True):
+        arr = []
+        for _ in range(count):
+            s_pool = filter_scenes_by_shoe_type(shoe_type)
+            d_pool = filter_dialogues(shoe_type, tone)
+
+            s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
+            d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
+
+            dialogue_text = get_dialogue_text(d, tone)
+
+            if mode.startswith("PROMPT 1"):
+                p = build_prompt_p1(shoe_type, tone, s, dialogue_text, shoe_name)
+            else:
+                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin trong video mang tính tham khảo."
+                p = build_prompt_p2(shoe_type, tone, s, dialogue_text, disclaimer, shoe_name)
+
+            arr.append(p)
+
+        st.session_state.generated_prompts = arr
+
+    prompts = st.session_state.get("generated_prompts", [])
+    if prompts:
+        st.markdown("### ✅ Chọn prompt (bấm số)")
+        tabs = st.tabs([f"{i+1}" for i in range(len(prompts))])
+        for i, tab in enumerate(tabs):
+            with tab:
+                st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
+                copy_button(prompts[i], key=f"copy_view_{i}")
+
+else:
+    st.warning("⬆️ Upload ảnh giày để bắt đầu.")
+
+st.divider()
+if st.button("♻️ Reset chống trùng"):
+    st.session_state.used_dialogue_ids.clear()
+    st.session_state.used_scene_ids.clear()
+    st.session_state.generated_prompts = []
+    st.success("✅ Đã reset")
