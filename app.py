@@ -4,6 +4,7 @@ import random
 import base64
 import re
 import json
+import traceback
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -12,9 +13,9 @@ from PIL import Image
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition", layout="wide")
-st.title("🎬 Sora Prompt Studio Pro – Director Edition")
-st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE")
+st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition (PRO)", layout="wide")
+st.title("🎬 Sora Prompt Studio Pro – Director Edition (PRO)")
+st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE • PRO: Auto-hide AI + Gemini debug logs")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
@@ -22,6 +23,17 @@ SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "lux
 BASE_DIR = Path(__file__).parent if "__file__" in globals() else Path(".")
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
+# =========================
+# PRO: detect library availability
+# =========================
+def gemini_available() -> bool:
+    try:
+        import google.generativeai  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+GEMINI_READY = gemini_available()
 
 # =========================
 # COPY BUTTON (1 CLICK)
@@ -50,7 +62,6 @@ def copy_button(text: str, key: str):
     """
     st.components.v1.html(html, height=42)
 
-
 # =========================
 # FILE CHECK
 # =========================
@@ -58,7 +69,6 @@ missing = [f for f in REQUIRED_FILES if not (BASE_DIR / f).exists()]
 if missing:
     st.error(f"❌ Thiếu file: {', '.join(missing)} (phải nằm cùng thư mục app.py)")
     st.stop()
-
 
 # =========================
 # LOAD CSV (robust)
@@ -68,10 +78,8 @@ def _ensure_id(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = cols
     if "id" not in df.columns:
         df.insert(0, "id", [str(i + 1) for i in range(len(df))])
-    # id luôn là string
     df["id"] = df["id"].astype(str)
     return df
-
 
 @st.cache_data
 def load_dialogues():
@@ -79,13 +87,11 @@ def load_dialogues():
     df = _ensure_id(df)
     return df.to_dict(orient="records"), [c.strip() for c in df.columns.tolist()]
 
-
 @st.cache_data
 def load_scenes():
     df = pd.read_csv(str(BASE_DIR / "scene_library.csv"))
     df = _ensure_id(df)
     return df.to_dict(orient="records"), [c.strip() for c in df.columns.tolist()]
-
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
@@ -111,14 +117,12 @@ def load_disclaimer_prompt2_flexible():
     arr = df[last].dropna().astype(str).tolist()
     return [x.strip() for x in arr if x.strip()]
 
-
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
 
-
 # =========================
-# SESSION – ANTI DUP
+# SESSION – ANTI DUP + DEBUG
 # =========================
 if "used_dialogue_ids" not in st.session_state:
     st.session_state.used_dialogue_ids = set()
@@ -128,7 +132,8 @@ if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
-
+if "gemini_debug" not in st.session_state:
+    st.session_state.gemini_debug = None  # will store dict logs
 
 # =========================
 # UTILS
@@ -146,15 +151,11 @@ def safe_text(v) -> str:
         return ""
     return s
 
-
 def pick_unique(pool: List[dict], used_ids: set, key: str):
     if not pool:
         return {}
-
-    # key không có -> fallback theo index random
     if key not in pool[0]:
         return random.choice(pool)
-
     items = [x for x in pool if str(x.get(key, "")).strip() not in used_ids]
     if not items:
         used_ids.clear()
@@ -163,9 +164,7 @@ def pick_unique(pool: List[dict], used_ids: set, key: str):
     used_ids.add(str(item.get(key, "")).strip())
     return item
 
-
 def scene_line(scene: dict) -> str:
-    # không bắt buộc đủ cột
     parts = [
         safe_text(scene.get("lighting")),
         safe_text(scene.get("location")),
@@ -177,33 +176,24 @@ def scene_line(scene: dict) -> str:
         parts.append(f"mood {mood}")
     return " • ".join([p for p in parts if p]).strip(" •")
 
-
 def filter_scenes_by_shoe_type(shoe_type: str):
-    # nếu scene_library có cột shoe_type -> filter, không thì trả về all
     if scenes and "shoe_type" in scenes[0]:
         f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
         return f if f else scenes
     return scenes
 
-
 def filter_dialogues(shoe_type: str, tone: str):
     pool = dialogues
-
-    # filter tone nếu có cột tone
     if dialogues and "tone" in dialogues[0]:
         tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
         pool = tone_f if tone_f else dialogues
-
-    # filter shoe_type nếu có cột shoe_type
     if pool and "shoe_type" in pool[0]:
         shoe_f = [d for d in pool if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
         pool = shoe_f if shoe_f else pool
-
     return pool
 
-
 # =========================
-# HEURISTIC DETECT from filename (fallback)
+# FILENAME DETECT (fallback)
 # =========================
 def detect_shoe_from_filename(name: str) -> str:
     n = (name or "").lower()
@@ -222,26 +212,37 @@ def detect_shoe_from_filename(name: str) -> str:
             return shoe_type
     return "sneaker"
 
-
 # =========================
-# GEMINI VISION DETECT (OPTIONAL)
+# GEMINI VISION DETECT (PRO + DEBUG LOGS)
 # =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[Dict[str, Any]]:
     """
-    Returns: {"shoe_type": <one of SHOE_TYPES or "unknown">, "confidence": float, "raw": str}
-    If library missing / API error -> return None
+    Returns:
+      {"shoe_type": str, "confidence": float, "raw": str}
+    On failure -> returns None (and writes debug to st.session_state.gemini_debug)
     """
+    st.session_state.gemini_debug = None
+
     api_key = (api_key or "").strip()
     if not api_key:
+        st.session_state.gemini_debug = {"ok": False, "stage": "no_key", "error": "No API key provided."}
+        return None
+
+    if not GEMINI_READY:
+        st.session_state.gemini_debug = {
+            "ok": False,
+            "stage": "missing_library",
+            "error": "google-generativeai is not installed on this server.",
+            "hint": "Add google-generativeai to requirements.txt then redeploy/restart."
+        }
         return None
 
     try:
-        import google.generativeai as genai  # pip: google-generativeai
-    except Exception:
-        return None
+        import google.generativeai as genai
 
-    try:
         genai.configure(api_key=api_key)
+
+        # NOTE: using flash for speed/cost
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = f"""
@@ -263,11 +264,19 @@ Chỉ trả JSON, không thêm chữ khác.
 """.strip()
 
         resp = model.generate_content([prompt, img])
-        raw = (resp.text or "").strip()
+        raw = (getattr(resp, "text", "") or "").strip()
 
-        # cố parse JSON trong mọi trường hợp
+        st.session_state.gemini_debug = {"ok": True, "stage": "response_received", "raw_text": raw[:3000]}
+
+        # parse JSON
         m = re.search(r"\{.*\}", raw, flags=re.S)
         if not m:
+            st.session_state.gemini_debug = {
+                "ok": False,
+                "stage": "parse_json",
+                "error": "No JSON object found in model response.",
+                "raw_text": raw[:3000]
+            }
             return {"shoe_type": "unknown", "confidence": 0.0, "raw": raw}
 
         obj = json.loads(m.group(0))
@@ -276,29 +285,39 @@ Chỉ trả JSON, không thêm chữ khác.
 
         if shoe_type not in SHOE_TYPES and shoe_type != "unknown":
             shoe_type = "unknown"
+
         conf = max(0.0, min(1.0, conf))
+
+        st.session_state.gemini_debug = {
+            "ok": True,
+            "stage": "parsed",
+            "shoe_type": shoe_type,
+            "confidence": conf,
+            "raw_text": raw[:3000]
+        }
 
         return {"shoe_type": shoe_type, "confidence": conf, "raw": raw}
 
-    except Exception:
+    except Exception as e:
+        st.session_state.gemini_debug = {
+            "ok": False,
+            "stage": "exception",
+            "error": f"{type(e).__name__}: {str(e)}",
+            "traceback": traceback.format_exc()[:4000]
+        }
         return None
-
 
 def hybrid_pick(ai_result: Optional[dict], fallback_type: str) -> str:
     if not ai_result or not isinstance(ai_result, dict):
         return fallback_type
-
     ai_type = str(ai_result.get("shoe_type", "unknown")).strip().lower()
     conf = float(ai_result.get("confidence", 0.0) or 0.0)
-
     if ai_type in SHOE_TYPES and conf >= 0.60:
         return ai_type
-
     return fallback_type
 
-
 # =========================
-# DIALOGUE: ensure 3 distinct sentences
+# DIALOGUE BANK
 # =========================
 TONE_BANK = {
     "Tự tin": {
@@ -388,7 +407,6 @@ TONE_BANK = {
     }
 }
 
-
 def get_dialogue_text(row: dict, tone: str) -> str:
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row:
@@ -412,19 +430,16 @@ def get_dialogue_text(row: dict, tone: str) -> str:
     a = random.choice(bank["open"])
     b = random.choice(bank["mid"])
     c = random.choice(bank["close"])
-    # tránh lặp y chang trong 3 câu
     while b == a and len(bank["mid"]) > 1:
         b = random.choice(bank["mid"])
     while c in (a, b) and len(bank["close"]) > 1:
         c = random.choice(bank["close"])
     return f"{a} {b} {c}"
 
-
 # =========================
 # PROMPTS
 # =========================
 def build_prompt_p1(shoe_type: str, tone: str, scene: dict, dialogue_text: str, shoe_name: str) -> str:
-    # ✅ Prompt 1: KHÔNG cần miễn trừ
     return f"""
 SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
 VOICE ID: {CAMEO_VOICE_ID}
@@ -457,7 +472,6 @@ AUDIO TIMELINE
 [VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
 {dialogue_text}
 """.strip()
-
 
 def build_prompt_p2(shoe_type: str, tone: str, scene: dict, dialogue_text: str, disclaimer: str, shoe_name: str) -> str:
     return f"""
@@ -499,9 +513,8 @@ SAFETY / MIỄN TRỪ (PROMPT 2)
 - {disclaimer}
 """.strip()
 
-
 # =========================
-# SIDEBAR: GEMINI KEY
+# SIDEBAR: GEMINI KEY + DEBUG TOGGLE
 # =========================
 with st.sidebar:
     st.markdown("### 🔑 Gemini API Key (tùy chọn)")
@@ -523,6 +536,10 @@ with st.sidebar:
     else:
         st.warning("Chưa có key (app vẫn chạy bình thường).")
 
+    st.markdown("---")
+    show_debug = st.checkbox("🧪 Hiện debug Gemini (PRO)", value=False)
+    if not GEMINI_READY:
+        st.warning("⚠️ Server thiếu thư viện google-generativeai → chế độ AI sẽ tự ẩn.\n\nThêm vào requirements.txt:\n- google-generativeai")
 
 # =========================
 # UI
@@ -540,7 +557,7 @@ with right:
     st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
     st.caption(f"Dialogues columns: {dialogue_cols}")
     st.caption(f"Scenes columns: {scene_cols}")
-    st.info("ℹ️ Prompt 1: KHÔNG cần miễn trừ (đã bỏ). Prompt 2: có miễn trừ từ disclaimer_prompt2.csv")
+    st.info("ℹ️ Prompt 1: KHÔNG cần miễn trừ. Prompt 2: có miễn trừ từ disclaimer_prompt2.csv")
 
 st.divider()
 
@@ -548,24 +565,32 @@ if uploaded:
     shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
     img = Image.open(uploaded).convert("RGB")
 
-    # ===== Detect (AI + filename) =====
     detected_filename = detect_shoe_from_filename(uploaded.name)
 
+    # ===== Gemini detect (only if lib ready + key exists) =====
     detected_ai = None
     ai_error = ""
-    if st.session_state.gemini_api_key.strip():
+
+    if GEMINI_READY and st.session_state.gemini_api_key.strip():
         detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
         if detected_ai is None:
-            ai_error = "Gemini detect lỗi/thiếu thư viện → fallback Auto theo tên file."
+            ai_error = "Gemini detect lỗi → fallback Auto theo tên file."
+    elif not GEMINI_READY:
+        ai_error = "Server thiếu thư viện google-generativeai → AI bị ẩn, fallback Auto."
     else:
         ai_error = "Chưa có Gemini key → AI không chạy, fallback Auto theo tên file."
 
-    # ===== Mode selector: AI / Auto / Chọn tay =====
-    default_mode = "AI" if detected_ai else "Auto"
+    # ===== PRO: auto-hide AI mode if missing library =====
+    modes = ["Auto", "Chọn tay"]
+    if GEMINI_READY:
+        modes.insert(0, "AI")
+
+    default_mode = "AI" if (GEMINI_READY and detected_ai) else "Auto"
+
     shoe_mode = st.selectbox(
         "Chọn chế độ shoe_type",
-        ["AI", "Auto", "Chọn tay"],
-        index=["AI", "Auto", "Chọn tay"].index(default_mode),
+        modes,
+        index=modes.index(default_mode),
         help="AI: Gemini Vision | Auto: đoán theo tên file | Chọn tay: bạn tự chọn"
     )
 
@@ -591,6 +616,17 @@ if uploaded:
         st.info(f"👟 Auto theo tên file: **{shoe_type}**")
 
     st.caption(f"shoe_name (tên file): {shoe_name}")
+
+    # ===== PRO: show debug logs =====
+    if show_debug:
+        dbg = st.session_state.get("gemini_debug")
+        with st.expander("🧪 Gemini Debug Logs (PRO)", expanded=True):
+            st.write("GEMINI_READY:", GEMINI_READY)
+            st.write("Has key:", bool(st.session_state.gemini_api_key.strip()))
+            if dbg is None:
+                st.info("Chưa có log (chưa gọi Gemini hoặc Gemini bị ẩn).")
+            else:
+                st.json(dbg)
 
     btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
     if st.button(btn_label, use_container_width=True):
@@ -631,4 +667,5 @@ if st.button("♻️ Reset chống trùng"):
     st.session_state.used_dialogue_ids.clear()
     st.session_state.used_scene_ids.clear()
     st.session_state.generated_prompts = []
+    st.session_state.gemini_debug = None
     st.success("✅ Đã reset")
