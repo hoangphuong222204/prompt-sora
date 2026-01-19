@@ -254,27 +254,36 @@ def get_one_line(row, tone):
     }
     return ensure_sentence(random.choice(fallback.get(tone, fallback["Tự tin"])))
 
-def build_dialogue_2_3_sentences(d_pool, tone):
-    # bốc 2–3 dòng khác nhau để đúng yêu cầu “2–3 câu”
-    k = random.choice([2, 3])
+def build_dialogue_3_sentences(d_pool, tone):
+    """
+    ÉP LUÔN 3 câu:
+    - bốc 3 dòng khác nhau từ CSV (không trùng id)
+    - nếu pool thiếu thì dùng fallback để đủ 3 câu
+    """
+    k = 3
     lines = []
     local_used = set()
     tries = 0
-    while len(lines) < k and tries < 30:
+
+    while len(lines) < k and tries < 200:
         tries += 1
         d = random.choice(d_pool) if d_pool else {}
         did = safe_text(d.get("id")) or f"fallback_{tries}"
         if did in local_used:
             continue
         local_used.add(did)
-        # vẫn ghi vào used_dialogue_ids global để chống trùng
-        if safe_text(d.get("id")):
-            st.session_state.used_dialogue_ids.add(safe_text(d.get("id")))
-        lines.append(get_one_line(d, tone))
-    # nếu thiếu thì thêm fallback
+
+        line = get_one_line(d, tone)
+        if line:
+            lines.append(line)
+
     while len(lines) < k:
         lines.append(get_one_line({}, tone))
-    return " ".join([x for x in lines if x])
+
+    # ép chắc chắn đủ 3 câu và có dấu kết câu
+    lines = [ensure_sentence(x) for x in lines[:3]]
+    return " ".join(lines)
+
 
 # =========================
 # BUILD PROMPTS (CÓ KHÓA ẢNH + TÊN GIÀY)
