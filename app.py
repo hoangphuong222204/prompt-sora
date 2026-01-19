@@ -3,6 +3,8 @@ import pandas as pd
 import random
 import base64
 from pathlib import Path
+import re
+from io import BytesIO
 
 # =========================
 # CONFIG
@@ -135,13 +137,15 @@ if "used_scene_ids" not in st.session_state:
     st.session_state.used_scene_ids = set()
 if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
+if "used_voice_lines" not in st.session_state:
+    st.session_state.used_voice_lines = set()
 
 def pick_unique(pool, used_ids: set, key: str):
     items = [x for x in pool if str(x.get(key, "")).strip() not in used_ids]
     if not items:
         used_ids.clear()
         items = pool[:]
-    item = random.choice(items) if items else {}
+    item = random.choice(items)
     used_ids.add(str(item.get(key, "")).strip())
     return item
 
@@ -161,191 +165,228 @@ def safe_text(v):
         return ""
     return s
 
-def ensure_sentence(s: str) -> str:
-    s = safe_text(s)
-    if not s:
-        return ""
-    # đảm bảo có dấu kết câu
-    if s[-1] not in [".", "!", "?", "…"]:
-        s += "."
-    return s
+def normalize_filename(name: str) -> str:
+    n = (name or "").lower()
+    n = re.sub(r"\.(jpg|jpeg|png|webp|bmp)$", "", n)
+    n = re.sub(r"[^a-z0-9_ -]", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return n
 
-def get_one_line(row: dict, tone: str) -> str:
+def extract_shoe_name(name: str) -> str:
+    # Lấy tên "đẹp" từ filename: bỏ đuôi, bỏ timestamp dài, bỏ cụm vô nghĩa
+    n = normalize_filename(name)
+    # bỏ chuỗi số dài (timestamp)
+    n = re.sub(r"\b\d{8,}\b", "", n).strip()
+    # rút gọn
+    if not n:
+        return "uploaded_shoe"
+    # giới hạn độ dài
+    return n[:60]
+
+# =========================
+# SMART AUTO DETECT shoe_type (FIXED)
+# =========================
+KEYWORD_RULES = {
+    "leather": [
+        "loafer", "loafers", "horsebit", "bit", "oxford", "derby", "monk", "monkstrap",
+        "brogue", "formal", "dress", "moc", "moccasin", "mocassin", "giay-da", "giay da",
+        "da-nam", "da nam", "cong so", "cong-so", "tay", "slipon", "slip-on"
+    ],
+    "luxury": [
+        "lux", "luxury", "premium", "quiet", "boutique", "highend", "high-end", "handmade",
+        "classic", "elegant", "formal-lux"
+    ],
+    "boots": [
+        "boot", "boots", "chelsea", "combat", "ankleboot", "ankle-boot", "chukka"
+    ],
+    "sandals": [
+        "sandal", "sandals", "dep", "dép", "slide", "slides", "slipper", "flipflop", "flip-flop"
+    ],
+    "runner": [
+        "runner", "running", "run", "jog", "training", "sport", "the thao", "the-thao", "gym"
+    ],
+    "sneaker": [
+        "sneaker", "sneakers", "tennis", "casual-sneaker", "street", "streetwear"
+    ],
+    "casual": [
+        "casual", "daily", "everyday", "basic", "lifestyle"
+    ],
+}
+
+def smart_detect_shoe_type(filename: str):
     """
-    Lấy 1 câu thoại từ CSV (ưu tiên cột dialogue).
-    Nếu không có -> fallback 1 câu ngắn theo tone.
+    Trả về: (shoe_type, confidence(0-100), reason)
     """
+    n = normalize_filename(filename)
+    if not n:
+        return "sneaker", 30, "Không có tên file để suy luận"
+
+    scores = {k: 0 for k in SHOE_TYPES}
+    hits = {k: [] for k in SHOE_TYPES}
+
+    # ưu tiên mạnh cho leather/luxury khi có keyword rõ
+    for stype, kws in KEYWORD_RULES.items():
+        for kw in kws:
+            # match theo word-boundary mềm (có thể có dấu gạch)
+            if kw in n:
+                w = 8
+                if stype in ["leather", "luxury"]:
+                    w = 12
+                if stype in ["boots", "sandals"]:
+                    w = 10
+                scores[stype] += w
+                hits[stype].append(kw)
+
+    # Heuristic nâng cấp: nếu có "da" hoặc "cong so" -> leather
+    if re.search(r"\bda\b", n) or "giay da" in n or "cong so" in n or "công sở" in n:
+        scores["leather"] += 10
+        hits["leather"].append("da/cong-so")
+
+    # Nếu leather mạnh thì giảm khả năng sneaker/runner
+    if scores["leather"] >= 12:
+        scores["sneaker"] = max(0, scores["sneaker"] - 6)
+        scores["runner"] = max(0, scores["runner"] - 6)
+
+    # Quy tắc ưu tiên: nếu leather và luxury đều có điểm, ưu tiên luxury khi luxury >= leather
+    # (vì nhiều file đặt tên premium/quiet luxury cho giày da)
+    best = max(scores.items(), key=lambda x: x[1])[0]
+    best_score = scores[best]
+
+    # Nếu không có keyword gì -> mặc định sneaker nhưng confidence thấp
+    if best_score <= 0:
+        return "sneaker", 25, "Không có keyword nhận dạng (fallback sneaker)"
+
+    # confidence
+    # max theoretical ~ 40-60; ta clamp về 40..95
+    conf = min(95, max(40, int(best_score * 4)))
+    reason = f"Match: {', '.join(hits[best][:6])}" if hits[best] else "Heuristic score"
+    return best, conf, reason
+
+# =========================
+# THOẠI: ép ra ĐÚNG 3 câu, không na ná nhau
+# =========================
+TONE_LINE_BANK = {
+    "Tự tin": [
+        "Mình thích cảm giác gọn gàng, bước đi nhìn cũng rõ ràng hơn.",
+        "Form lên chân ổn, phối đồ cũng dễ mà không cần cầu kỳ.",
+        "Đi cả ngày vẫn thấy nhịp chân khá thoải mái.",
+        "Nhìn tổng thể sạch sẽ, hợp kiểu mặc đơn giản.",
+        "Mình chọn đôi này khi muốn mọi thứ gọn và chắc.",
+        "Cảm giác di chuyển mượt, không bị vướng nhịp.",
+        "Đứng dáng lên nhìn tự tin hơn hẳn."
+    ],
+    "Truyền cảm": [
+        "Có những đôi mang vào là mood tự nhiên dịu lại.",
+        "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản.",
+        "Mình thích cảm giác vừa vặn, nhẹ nhàng khi di chuyển.",
+        "Không cần nổi bật quá, nhưng càng nhìn càng có gu.",
+        "Ánh sáng lên form nhìn rất êm và mềm mắt.",
+        "Đi chậm thôi mà thấy mọi thứ cân bằng hơn."
+    ],
+    "Mạnh mẽ": [
+        "Mình cần sự chắc chân để giữ nhịp cả ngày.",
+        "Bước nhanh hơn một chút vẫn thấy ổn định.",
+        "Nhịp đi dứt khoát, cảm giác gọn và vững.",
+        "Ngày bận rộn thì mình ưu tiên kiểu chắc chắn như vậy.",
+        "Di chuyển liên tục mà vẫn giữ được phong thái.",
+        "Cảm giác bám nhịp tốt, không bị chông chênh."
+    ],
+    "Lãng mạn": [
+        "Chiều xuống là mình thích đi chậm để cảm nhận không khí.",
+        "Nhịp bước thư thả làm mọi thứ nhẹ hơn.",
+        "Có cảm giác tinh tế rất vừa đủ, không phô trương.",
+        "Không gian yên yên là tự nhiên thấy dễ chịu.",
+        "Mình thích kiểu đơn giản mà vẫn có cảm xúc.",
+        "Đi vài bước thôi mà mood đã khác."
+    ],
+    "Tự nhiên": [
+        "Mình ưu tiên sự thoải mái, mang là muốn đi tiếp.",
+        "Cảm giác nhẹ nhàng, hợp những ngày muốn thả lỏng.",
+        "Nhìn tổng thể tự nhiên, không bị gò bó.",
+        "Đi lâu một chút vẫn thấy dễ chịu.",
+        "Chuyển động nhẹ, nhịp chân êm và đều.",
+        "Mình thích kiểu đơn giản, gần gũi."
+    ],
+}
+
+def split_sentences(text: str):
+    # tách câu theo . ! ? (giữ sạch)
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if not t:
+        return []
+    parts = re.split(r"(?<=[\.\!\?])\s+", t)
+    parts = [p.strip() for p in parts if p.strip()]
+    # nếu người dùng viết không có dấu chấm -> coi như 1 câu
+    return parts
+
+def pick_unique_voice_line(pool, used_set):
+    candidates = [x for x in pool if x not in used_set]
+    if not candidates:
+        used_set.clear()
+        candidates = pool[:]
+    line = random.choice(candidates)
+    used_set.add(line)
+    return line
+
+def get_dialogue_text(row, tone):
+    """
+    Đảm bảo output: ĐÚNG 3 câu, không lặp ý kiểu đảo lại.
+    - ưu tiên lấy từ CSV (cột dialogue/text/...)
+    - nếu CSV chỉ có 1 câu -> bổ sung 2 câu từ bank theo tone (unique)
+    - nếu CSV có 2 câu -> bổ sung 1 câu từ bank
+    - nếu CSV có >=3 câu -> lấy 3 câu đầu tiên khác nhau (random)
+    """
+    csv_text = ""
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row:
             t = safe_text(row.get(col))
             if t:
-                return ensure_sentence(t)
+                csv_text = t
+                break
 
-    fallback = {
-        "Tự tin": [
-            "Hôm nay mình đi ra ngoài thấy nhịp bước gọn hơn",
-            "Nhìn tổng thể dễ phối, cảm giác di chuyển ổn định",
-            "Mình thích kiểu đơn giản nhưng vẫn có điểm nhấn"
-        ],
-        "Truyền cảm": [
-            "Có những đôi mang vào là thấy mọi thứ dịu lại",
-            "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản",
-            "Càng tối giản, càng dễ tạo phong cách riêng"
-        ],
-        "Mạnh mẽ": [
-            "Mình đi nhanh hơn mà vẫn thấy chắc chân",
-            "Nhịp bước dứt khoát, gọn gàng, không chông chênh",
-            "Ngày bận rộn thì mình cần cảm giác ổn định như vậy"
-        ],
-        "Lãng mạn": [
-            "Chiều nay ra ngoài chút, tự nhiên mood nhẹ hơn",
-            "Đi chậm thôi nhưng cảm giác lại rất thư thả",
-            "Mình thích sự tinh tế nằm ở những thứ giản đơn"
-        ],
-        "Tự nhiên": [
-            "Mình ưu tiên thoải mái, mang là muốn đi tiếp",
-            "Cảm giác nhẹ nhàng, hợp những ngày muốn thả lỏng",
-            "Nhìn tổng thể rất tự nhiên"
-        ]
-    }
-    return ensure_sentence(random.choice(fallback.get(tone, fallback["Tự tin"])))
+    bank = TONE_LINE_BANK.get(tone, TONE_LINE_BANK["Tự tin"])
 
+    # nếu CSV có text
+    if csv_text:
+        sents = split_sentences(csv_text)
+        # nếu CSV không có dấu câu (1 câu dài) -> coi là 1
+        if len(sents) == 0:
+            sents = [csv_text.strip()]
 
-def build_dialogue_3_sentences(d_pool, tone):
-    """
-    ÉP 3 câu KHÁC NHAU VỀ Ý:
-    (1) cảm giác đi / ổn định
-    (2) phối đồ / tổng thể
-    (3) tình huống dùng / nhịp ngày
-    + chống lặp theo session (không quay lại câu đã dùng)
-    """
-    # --- Session memory chống lặp toàn app ---
-    if "used_sentence_texts" not in st.session_state:
-        st.session_state.used_sentence_texts = set()
+        # làm sạch trùng
+        uniq = []
+        for s in sents:
+            ss = s.strip()
+            if ss and ss not in uniq:
+                uniq.append(ss)
 
-    def ok_new(sentence: str) -> bool:
-        s = ensure_sentence(sentence).strip()
-        if not s:
-            return False
-        key = s.lower()
-        if key in st.session_state.used_sentence_texts:
-            return False
-        st.session_state.used_sentence_texts.add(key)
-        return True
+        if len(uniq) >= 3:
+            # chọn 3 câu khác nhau, random để không “na ná”
+            chosen = random.sample(uniq, 3)
+            return " ".join([c if c.endswith((".", "!", "?")) else c + "." for c in chosen])
 
-    # --- 3 "bucket" template để câu khác nhau về ý ---
-    buckets = {
-        "feel": [
-            "Bước lên thấy {feel_word}, nhịp đi {step_word}.",
-            "Đi một vòng mà vẫn thấy {feel_word}, không bị {bad_word}.",
-            "Cảm giác dưới chân {feel_word}, chuyển động {step_word}."
-        ],
-        "style": [
-            "Nhìn tổng thể {style_word}, phối đồ {mix_word}.",
-            "Form lên chân {style_word}, nhìn {look_word}.",
-            "Tổng thể {style_word}, mình thích cách nó {look_word}."
-        ],
-        "use": [
-            "Hợp những ngày {day_word}, đi đâu cũng {use_word}.",
-            "Mình hay mang lúc {day_word}, vì cảm giác {use_word}.",
-            "Ngày {day_word} thì kiểu này rất {use_word}."
-        ]
-    }
+        if len(uniq) == 2:
+            extra = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+            chosen = [uniq[0], uniq[1], extra]
+            return " ".join([c if c.endswith((".", "!", "?")) else c + "." for c in chosen])
 
-    vocab = {
-        "feel_word": ["êm vừa", "vững", "thoải mái", "đầm", "dễ chịu", "gọn chân"],
-        "step_word": ["mượt", "nhẹ", "đều", "dứt khoát", "ổn định"],
-        "bad_word": ["lỏng lẻo", "chênh", "mỏi nhanh", "bị trượt cảm giác"],
-        "style_word": ["gọn gàng", "tinh tế", "sạch sẽ", "hiện đại", "điềm tĩnh", "lịch sự"],
-        "mix_word": ["dễ", "rất tiện", "không phải nghĩ nhiều", "linh hoạt"],
-        "look_word": ["lên dáng", "giữ form nhìn ổn", "tạo cảm giác chỉn chu", "nhìn sáng tổng thể"],
-        "day_word": ["bận rộn", "di chuyển nhiều", "cần gọn nhẹ", "đi làm", "ra ngoài gặp bạn", "đi cà phê"],
-        "use_word": ["dễ chịu", "hợp nhịp", "thoải mái", "tự nhiên", "đỡ mất công chọn"]
-    }
+        if len(uniq) == 1:
+            extra1 = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+            extra2 = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+            chosen = [uniq[0], extra1, extra2]
+            return " ".join([c if c.endswith((".", "!", "?")) else c + "." for c in chosen])
 
-    # --- Helper tạo 1 câu từ bucket ---
-    def gen_from_bucket(bucket_name: str):
-        tpl = random.choice(buckets[bucket_name])
-        sent = tpl.format(
-            feel_word=random.choice(vocab["feel_word"]),
-            step_word=random.choice(vocab["step_word"]),
-            bad_word=random.choice(vocab["bad_word"]),
-            style_word=random.choice(vocab["style_word"]),
-            mix_word=random.choice(vocab["mix_word"]),
-            look_word=random.choice(vocab["look_word"]),
-            day_word=random.choice(vocab["day_word"]),
-            use_word=random.choice(vocab["use_word"]),
-        )
-        return ensure_sentence(sent)
-
-    # --- cố gắng lấy 1 câu CSV thật + 2 câu template khác ý ---
-    # chọn 1 câu CSV nhưng KHÔNG được giống template kiểu chung chung quá
-    csv_sentence = ""
-    tries = 0
-    while tries < 200 and d_pool:
-        tries += 1
-        d = random.choice(d_pool)
-        t = get_one_line(d, tone)
-        # lọc câu quá ngắn / kiểu chung chung giống nhau
-        if len(t) < 18:
-            continue
-        if ok_new(t):
-            csv_sentence = t
-            break
-
-    # 2 câu template khác bucket để chắc chắn khác ý
-    out = []
-    if csv_sentence:
-        out.append(csv_sentence)
-
-    # luôn tạo theo 2 bucket khác nhau để không na ná
-    for bucket in ["feel", "style", "use"]:
-        if len(out) >= 3:
-            break
-        t = gen_from_bucket(bucket)
-        # chống lặp
-        if ok_new(t):
-            out.append(t)
-
-    # nếu vẫn thiếu -> bù bằng template random cho đủ 3
-    while len(out) < 3:
-        t = gen_from_bucket(random.choice(["feel", "style", "use"]))
-        if ok_new(t):
-            out.append(t)
-
-    return " ".join(out[:3])
-
-def detect_shoe(name):
-    n = (name or "").lower()
-    if "loafer" in n or "loafers" in n or "horsebit" in n or "bit" in n:
-        return "leather"
-    if "da" in n:
-        return "leather"
-    if "sandal" in n or "dep" in n:
-        return "sandals"
-    if "run" in n or "thethao" in n:
-        return "runner"
-    if "boot" in n:
-        return "boots"
-    if "lux" in n:
-        return "luxury"
-    if "casual" in n:
-        return "casual"
-    return "sneaker"
-
-def get_shoe_name_from_upload(uploaded_file):
-    if not uploaded_file:
-        return ""
-    try:
-        stem = Path(uploaded_file.name).stem
-        return stem.strip()
-    except Exception:
-        return safe_text(getattr(uploaded_file, "name", ""))
+    # fallback: không có csv_text
+    extra1 = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+    extra2 = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+    extra3 = pick_unique_voice_line(bank, st.session_state.used_voice_lines)
+    chosen = [extra1, extra2, extra3]
+    return " ".join([c if c.endswith((".", "!", "?")) else c + "." for c in chosen])
 
 def scene_line(scene):
     return (
-        f"{safe_text(scene.get('lighting'))} • {safe_text(scene.get('location'))} • "
-        f"{safe_text(scene.get('motion'))} • {safe_text(scene.get('weather'))} • mood {safe_text(scene.get('mood'))}"
+        f"{scene.get('lighting','')} • {scene.get('location','')} • "
+        f"{scene.get('motion','')} • {scene.get('weather','')} • mood {scene.get('mood','')}"
     ).strip(" •")
 
 def filter_scenes_by_shoe_type(shoe_type):
@@ -360,17 +401,17 @@ def filter_dialogues(shoe_type, tone):
     return shoe_f if shoe_f else tone_f
 
 # =========================
-# BUILD PROMPTS
+# BUILD PROMPTS (FIX: include shoe_name + shoe_type)
 # =========================
-def build_prompt_p1(shoe_type, tone, shoe_name=""):
+def build_prompt_p1(shoe_name, shoe_type, tone):
     s_pool = filter_scenes_by_shoe_type(shoe_type)
     d_pool = filter_dialogues(shoe_type, tone)
 
     s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
+    d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
     disclaimer = random.choice(disclaimers_p1 if disclaimers_p1 else DISCLAIMER_P1_FALLBACK)
 
-    # ÉP 3 CÂU
-    dialogue_text = build_dialogue_3_sentences(d_pool, tone)
+    dialogue_text = get_dialogue_text(d, tone)
 
     return f"""
 SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
@@ -386,36 +427,36 @@ VIDEO SETUP
 SHOE REFERENCE — ABSOLUTE LOCK
 - Use ONLY the uploaded shoe image as reference.
 - KEEP 100% shoe identity (shape, sole, panels, stitching, proportions).
-- NO redesign • NO deformation • NO guessing • NO color shift.
+- NO redesign • NO deformation • NO guessing • NO color shift
 
-PRODUCT
-- shoe_type: {shoe_type}
+PRODUCT (for consistency, not for selling)
 - shoe_name: {shoe_name}
+- shoe_type: {shoe_type}
 
 SCENE
 - {scene_line(s)}
 
 AUDIO TIMELINE
 0.0–1.2s: Không thoại, ambient + nhạc nền rất nhẹ
-1.2–6.9s: VOICE ON (3 câu, đời thường, chia sẻ trải nghiệm)
+1.2–6.9s: VOICE ON (ĐÚNG 3 câu, đời thường, chia sẻ trải nghiệm)
 6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
 
 [VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
 {dialogue_text}
 
-SAFETY / MIỄN TRỪ (PROMPT 1)
+SAFETY / MIỄN TRỪ
 - {disclaimer}
 """.strip()
 
-def build_prompt_p2(shoe_type, tone, shoe_name=""):
+def build_prompt_p2(shoe_name, shoe_type, tone):
     s_pool = filter_scenes_by_shoe_type(shoe_type)
     d_pool = filter_dialogues(shoe_type, tone)
 
     s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
+    d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
     disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Thông tin chi tiết vui lòng xem trong giỏ hàng."
 
-    # ÉP 3 CÂU
-    dialogue_text = build_dialogue_3_sentences(d_pool, tone)
+    dialogue_text = get_dialogue_text(d, tone)
 
     return f"""
 SORA VIDEO PROMPT — PROMPT 2 (CÓ CAMEO) — TIMELINE LOCK 10s
@@ -427,21 +468,25 @@ VIDEO SETUP
 - NO text • NO logo • NO watermark
 - NO blur • NO haze • NO glow
 
+CAMEO SETUP (SAFE)
+- Cameo xuất hiện tự nhiên, không CTA, không bán hàng
+- Voice nói kiểu chia sẻ trải nghiệm đời thường
+
 SHOE REFERENCE — ABSOLUTE LOCK
 - Use ONLY the uploaded shoe image as reference.
 - KEEP 100% shoe identity (shape, sole, panels, stitching, proportions).
-- NO redesign • NO deformation • NO guessing • NO color shift.
+- NO redesign • NO deformation • NO guessing • NO color shift
 
-PRODUCT
-- shoe_type: {shoe_type}
+PRODUCT (for consistency, not for selling)
 - shoe_name: {shoe_name}
+- shoe_type: {shoe_type}
 
 SCENE
 - {scene_line(s)}
 
 AUDIO TIMELINE
 0.0–1.0s: Không thoại, ambient + nhạc nền rất nhẹ
-1.0–6.9s: VOICE ON (3 câu, đời thường, chia sẻ trải nghiệm)
+1.0–6.9s: VOICE ON (ĐÚNG 3 câu, đời thường, chia sẻ trải nghiệm)
 6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
 
 [VOICEOVER {CAMEO_VOICE_ID} | 1.0–6.9s]
@@ -475,8 +520,13 @@ with right:
 st.divider()
 
 if uploaded:
-    auto_type = detect_shoe(uploaded.name)
-    shoe_name = get_shoe_name_from_upload(uploaded)
+    # shoe_name lấy từ filename (không phụ thuộc shoe_type)
+    shoe_name = extract_shoe_name(uploaded.name)
+
+    # Smart auto detect shoe_type
+    auto_type, auto_conf, auto_reason = smart_detect_shoe_type(uploaded.name)
+
+    st.info(f"🧾 **shoe_name (lấy từ tên file):** `{shoe_name}`")
 
     shoe_type_choice = st.selectbox(
         "Chọn shoe_type (Auto hoặc chọn tay)",
@@ -484,17 +534,30 @@ if uploaded:
         index=0
     )
     shoe_type = auto_type if shoe_type_choice == "Auto" else shoe_type_choice
-    st.success(f"👟 shoe_type: **{shoe_type}** (Auto đoán theo tên file: {auto_type})")
-    st.info(f"🧾 shoe_name (lấy từ tên file): **{shoe_name}**")
+
+    if shoe_type_choice == "Auto":
+        # Cảnh báo khi confidence thấp
+        if auto_conf < 60:
+            st.warning(
+                f"⚠️ Auto đoán **{auto_type}** nhưng độ tin cậy thấp (**{auto_conf}%**). "
+                f"Lý do: {auto_reason}. Khuyên chồng chọn tay cho chắc."
+            )
+        else:
+            st.success(f"✅ Auto đoán shoe_type: **{auto_type}** ({auto_conf}%) • {auto_reason}")
+    else:
+        # Nếu user chọn tay khác auto thì báo
+        if shoe_type_choice != auto_type and auto_conf >= 60:
+            st.warning(f"ℹ️ Chồng chọn tay **{shoe_type_choice}** khác Auto (**{auto_type}**). OK, app sẽ dùng chọn tay.")
+        st.success(f"👟 shoe_type (chọn tay): **{shoe_type_choice}**")
 
     btn_label = "🎬 SINH PROMPT 1" if mode.startswith("PROMPT 1") else "🎬 SINH PROMPT 2"
     if st.button(btn_label, use_container_width=True):
         arr = []
+        # reset used_voice_lines mỗi lần sinh batch để 1 batch không trùng câu quá nhiều
+        st.session_state.used_voice_lines.clear()
+
         for _ in range(count):
-            if mode.startswith("PROMPT 1"):
-                p = build_prompt_p1(shoe_type, tone, shoe_name=shoe_name)
-            else:
-                p = build_prompt_p2(shoe_type, tone, shoe_name=shoe_name)
+            p = build_prompt_p1(shoe_name, shoe_type, tone) if mode.startswith("PROMPT 1") else build_prompt_p2(shoe_name, shoe_type, tone)
             arr.append(p)
         st.session_state.generated_prompts = arr
 
@@ -504,7 +567,7 @@ if uploaded:
         tabs = st.tabs([f"{i+1}" for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
-                st.text_area("Prompt", prompts[i], height=380, key=f"view_{i}")
+                st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
                 copy_button(prompts[i], key=f"copy_view_{i}")
 
 else:
@@ -514,6 +577,6 @@ st.divider()
 if st.button("♻️ Reset chống trùng"):
     st.session_state.used_dialogue_ids.clear()
     st.session_state.used_scene_ids.clear()
+    st.session_state.used_voice_lines.clear()
     st.session_state.generated_prompts = []
     st.success("✅ Đã reset")
-
