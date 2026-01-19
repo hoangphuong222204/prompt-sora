@@ -5,17 +5,18 @@ import base64
 import re
 import json
 import traceback
+import hashlib
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 from PIL import Image
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition (PRO)", layout="wide")
-st.title("🎬 Sora Prompt Studio Pro – Director Edition (PRO)")
-st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE • PRO: Auto-hide AI + Gemini debug logs")
+st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition (PRO V2)", layout="wide")
+st.title("🎬 Sora Prompt Studio Pro – Director Edition (PRO V2)")
+st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE • PRO V2: Auto-hide AI + Auto-pick model + Gemini debug + Test")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
@@ -122,7 +123,7 @@ scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
 
 # =========================
-# SESSION – ANTI DUP + DEBUG
+# SESSION – ANTI DUP + DEBUG + CACHE
 # =========================
 if "used_dialogue_ids" not in st.session_state:
     st.session_state.used_dialogue_ids = set()
@@ -133,7 +134,12 @@ if "generated_prompts" not in st.session_state:
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
 if "gemini_debug" not in st.session_state:
-    st.session_state.gemini_debug = None  # will store dict logs
+    st.session_state.gemini_debug = None
+if "gemini_model_selected" not in st.session_state:
+    st.session_state.gemini_model_selected = None
+if "detect_cache" not in st.session_state:
+    # map: image_hash -> {"shoe_type":..., "confidence":..., "raw":..., "model":...}
+    st.session_state.detect_cache = {}
 
 # =========================
 # UTILS
@@ -192,6 +198,11 @@ def filter_dialogues(shoe_type: str, tone: str):
         pool = shoe_f if shoe_f else pool
     return pool
 
+def image_hash(img: Image.Image) -> str:
+    # stable-ish hash to cache detect
+    b = img.resize((256, 256)).convert("RGB").tobytes()
+    return hashlib.sha256(b).hexdigest()[:16]
+
 # =========================
 # FILENAME DETECT (fallback)
 # =========================
@@ -213,15 +224,52 @@ def detect_shoe_from_filename(name: str) -> str:
     return "sneaker"
 
 # =========================
-# GEMINI VISION DETECT (PRO + DEBUG LOGS)
+# GEMINI MODEL PICK (fix 404)
 # =========================
-def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[Dict[str, Any]]:
+def pick_gemini_model(genai) -> Tuple[Optional[str], List[str]]:
+    """
+    Returns (picked_model_name, available_models_list_without_prefix)
+    """
+    preferred = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-pro-002",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+    ]
+    available = []
+    picked = None
+
+    try:
+        models = genai.list_models()
+        available = [m.name.replace("models/", "") for m in models if getattr(m, "name", None)]
+        for name in preferred:
+            if name in available:
+                picked = name
+                break
+        if not picked and available:
+            picked = available[0]
+    except Exception:
+        picked = preferred[0]
+    return picked, available
+
+# =========================
+# GEMINI VISION DETECT (PRO V2 + DEBUG + CACHE)
+# =========================
+def gemini_detect_shoe_type(img: Image.Image, api_key: str, cache_key: str) -> Optional[Dict[str, Any]]:
     """
     Returns:
-      {"shoe_type": str, "confidence": float, "raw": str}
-    On failure -> returns None (and writes debug to st.session_state.gemini_debug)
+      {"shoe_type": str, "confidence": float, "raw": str, "model": str}
+    On failure -> None (debug in st.session_state.gemini_debug)
     """
     st.session_state.gemini_debug = None
+
+    # cache
+    if cache_key in st.session_state.detect_cache:
+        hit = st.session_state.detect_cache[cache_key]
+        st.session_state.gemini_debug = {"ok": True, "stage": "cache_hit", "model": hit.get("model"), "shoe_type": hit.get("shoe_type"), "confidence": hit.get("confidence")}
+        return hit
 
     api_key = (api_key or "").strip()
     if not api_key:
@@ -242,8 +290,18 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Optional[Dict[str
 
         genai.configure(api_key=api_key)
 
-        # NOTE: using flash for speed/cost
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        picked, available = pick_gemini_model(genai)
+        st.session_state.gemini_model_selected = picked
+
+        st.session_state.gemini_debug = {
+            "ok": True,
+            "stage": "model_selected",
+            "model": picked,
+            "available_models_sample": available[:40],
+            "available_models_count": len(available)
+        }
+
+        model = genai.GenerativeModel(picked)
 
         prompt = f"""
 Bạn là hệ thống phân loại shoe_type cho TikTok prompts.
@@ -266,18 +324,25 @@ Chỉ trả JSON, không thêm chữ khác.
         resp = model.generate_content([prompt, img])
         raw = (getattr(resp, "text", "") or "").strip()
 
-        st.session_state.gemini_debug = {"ok": True, "stage": "response_received", "raw_text": raw[:3000]}
+        st.session_state.gemini_debug = {
+            "ok": True,
+            "stage": "response_received",
+            "model": picked,
+            "raw_text": raw[:3000]
+        }
 
-        # parse JSON
         m = re.search(r"\{.*\}", raw, flags=re.S)
         if not m:
+            out = {"shoe_type": "unknown", "confidence": 0.0, "raw": raw, "model": picked}
             st.session_state.gemini_debug = {
                 "ok": False,
                 "stage": "parse_json",
+                "model": picked,
                 "error": "No JSON object found in model response.",
                 "raw_text": raw[:3000]
             }
-            return {"shoe_type": "unknown", "confidence": 0.0, "raw": raw}
+            st.session_state.detect_cache[cache_key] = out
+            return out
 
         obj = json.loads(m.group(0))
         shoe_type = str(obj.get("shoe_type", "unknown")).strip().lower()
@@ -285,23 +350,26 @@ Chỉ trả JSON, không thêm chữ khác.
 
         if shoe_type not in SHOE_TYPES and shoe_type != "unknown":
             shoe_type = "unknown"
-
         conf = max(0.0, min(1.0, conf))
+
+        out = {"shoe_type": shoe_type, "confidence": conf, "raw": raw, "model": picked}
+        st.session_state.detect_cache[cache_key] = out
 
         st.session_state.gemini_debug = {
             "ok": True,
             "stage": "parsed",
+            "model": picked,
             "shoe_type": shoe_type,
             "confidence": conf,
             "raw_text": raw[:3000]
         }
-
-        return {"shoe_type": shoe_type, "confidence": conf, "raw": raw}
+        return out
 
     except Exception as e:
         st.session_state.gemini_debug = {
             "ok": False,
             "stage": "exception",
+            "model": st.session_state.get("gemini_model_selected"),
             "error": f"{type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()[:4000]
         }
@@ -514,7 +582,7 @@ SAFETY / MIỄN TRỪ (PROMPT 2)
 """.strip()
 
 # =========================
-# SIDEBAR: GEMINI KEY + DEBUG TOGGLE
+# SIDEBAR
 # =========================
 with st.sidebar:
     st.markdown("### 🔑 Gemini API Key (tùy chọn)")
@@ -538,11 +606,16 @@ with st.sidebar:
 
     st.markdown("---")
     show_debug = st.checkbox("🧪 Hiện debug Gemini (PRO)", value=False)
+
     if not GEMINI_READY:
-        st.warning("⚠️ Server thiếu thư viện google-generativeai → chế độ AI sẽ tự ẩn.\n\nThêm vào requirements.txt:\n- google-generativeai")
+        st.warning("⚠️ Server thiếu thư viện google-generativeai → AI mode sẽ tự ẩn.\n\nThêm vào requirements.txt:\n- google-generativeai")
+
+    st.markdown("---")
+    st.markdown("### 🧪 Test Gemini (không cần upload ảnh)")
+    test_btn = st.button("🔍 Test model + JSON", use_container_width=True)
 
 # =========================
-# UI
+# MAIN UI
 # =========================
 left, right = st.columns([1, 1])
 
@@ -561,18 +634,37 @@ with right:
 
 st.divider()
 
+# =========================
+# TEST GEMINI BUTTON
+# =========================
+if test_btn:
+    if not GEMINI_READY:
+        st.error("❌ Server thiếu thư viện google-generativeai. Thêm requirements.txt rồi redeploy.")
+    elif not st.session_state.gemini_api_key.strip():
+        st.error("❌ Chưa có Gemini API key.")
+    else:
+        # create a tiny dummy image to test model route
+        dummy = Image.new("RGB", (64, 64), (255, 255, 255))
+        key = image_hash(dummy) + "_test"
+        _ = gemini_detect_shoe_type(dummy, st.session_state.gemini_api_key, key)
+        st.success("✅ Đã test Gemini. Bật debug để xem model & log.")
+
+# =========================
+# WORKFLOW
+# =========================
 if uploaded:
     shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
     img = Image.open(uploaded).convert("RGB")
+    h = image_hash(img)
 
     detected_filename = detect_shoe_from_filename(uploaded.name)
 
-    # ===== Gemini detect (only if lib ready + key exists) =====
+    # detect with Gemini if possible
     detected_ai = None
     ai_error = ""
 
     if GEMINI_READY and st.session_state.gemini_api_key.strip():
-        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
+        detected_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key, h)
         if detected_ai is None:
             ai_error = "Gemini detect lỗi → fallback Auto theo tên file."
     elif not GEMINI_READY:
@@ -580,7 +672,7 @@ if uploaded:
     else:
         ai_error = "Chưa có Gemini key → AI không chạy, fallback Auto theo tên file."
 
-    # ===== PRO: auto-hide AI mode if missing library =====
+    # Auto-hide AI mode
     modes = ["Auto", "Chọn tay"]
     if GEMINI_READY:
         modes.insert(0, "AI")
@@ -603,7 +695,8 @@ if uploaded:
         if detected_ai and isinstance(detected_ai, dict):
             shoe_type = hybrid_pick(detected_ai, detected_filename)
             conf = float(detected_ai.get("confidence", 0.0) or 0.0)
-            st.success(f"👟 AI detect shoe_type: **{shoe_type}** (conf: {conf:.2f})")
+            model_used = detected_ai.get("model") or st.session_state.get("gemini_model_selected")
+            st.success(f"👟 AI detect shoe_type: **{shoe_type}** (conf: {conf:.2f}) • model: {model_used}")
             if shoe_type == detected_filename and (detected_ai.get("shoe_type") in ["unknown", None] or conf < 0.60):
                 st.warning("AI chưa chắc → dùng fallback theo tên file.")
         else:
@@ -617,12 +710,13 @@ if uploaded:
 
     st.caption(f"shoe_name (tên file): {shoe_name}")
 
-    # ===== PRO: show debug logs =====
+    # Debug logs
     if show_debug:
         dbg = st.session_state.get("gemini_debug")
-        with st.expander("🧪 Gemini Debug Logs (PRO)", expanded=True):
+        with st.expander("🧪 Gemini Debug Logs (PRO V2)", expanded=True):
             st.write("GEMINI_READY:", GEMINI_READY)
             st.write("Has key:", bool(st.session_state.gemini_api_key.strip()))
+            st.write("Model selected:", st.session_state.get("gemini_model_selected"))
             if dbg is None:
                 st.info("Chưa có log (chưa gọi Gemini hoặc Gemini bị ẩn).")
             else:
@@ -668,4 +762,5 @@ if st.button("♻️ Reset chống trùng"):
     st.session_state.used_scene_ids.clear()
     st.session_state.generated_prompts = []
     st.session_state.gemini_debug = None
+    st.session_state.detect_cache = {}
     st.success("✅ Đã reset")
