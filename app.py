@@ -172,10 +172,9 @@ def ensure_sentence(s: str) -> str:
 
 def get_one_line(row: dict, tone: str) -> str:
     """
-    Lấy 1 câu thoại từ row theo các cột phổ biến.
-    Nếu row không có hoặc rỗng -> fallback 1 câu theo tone.
+    Lấy 1 câu thoại từ CSV (ưu tiên cột dialogue).
+    Nếu không có -> fallback 1 câu ngắn theo tone.
     """
-    # CỘT CHÍNH trong CSV của mình thường là "dialogue"
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row:
             t = safe_text(row.get(col))
@@ -184,19 +183,19 @@ def get_one_line(row: dict, tone: str) -> str:
 
     fallback = {
         "Tự tin": [
-            "Hôm nay mình đi ra ngoài với nhịp bước gọn gàng hơn",
-            "Nhìn tổng thể dễ phối, cảm giác di chuyển cũng ổn định",
+            "Hôm nay mình đi ra ngoài thấy nhịp bước gọn hơn",
+            "Nhìn tổng thể dễ phối, cảm giác di chuyển ổn định",
             "Mình thích kiểu đơn giản nhưng vẫn có điểm nhấn"
         ],
         "Truyền cảm": [
             "Có những đôi mang vào là thấy mọi thứ dịu lại",
-            "Mình thích cảm giác vừa vặn, nhìn kỹ mới thấy cái hay nằm ở sự tinh giản",
+            "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản",
             "Càng tối giản, càng dễ tạo phong cách riêng"
         ],
         "Mạnh mẽ": [
-            "Mình đi nhanh hơn một chút mà vẫn thấy chắc chân",
-            "Nhịp bước dứt khoát, gọn gàng, không bị chông chênh",
-            "Ngày bận rộn thì mình cần sự ổn định như vậy"
+            "Mình đi nhanh hơn mà vẫn thấy chắc chân",
+            "Nhịp bước dứt khoát, gọn gàng, không chông chênh",
+            "Ngày bận rộn thì mình cần cảm giác ổn định như vậy"
         ],
         "Lãng mạn": [
             "Chiều nay ra ngoài chút, tự nhiên mood nhẹ hơn",
@@ -204,57 +203,117 @@ def get_one_line(row: dict, tone: str) -> str:
             "Mình thích sự tinh tế nằm ở những thứ giản đơn"
         ],
         "Tự nhiên": [
-            "Mình ưu tiên thoải mái, kiểu mang là muốn đi tiếp",
+            "Mình ưu tiên thoải mái, mang là muốn đi tiếp",
             "Cảm giác nhẹ nhàng, hợp những ngày muốn thả lỏng",
             "Nhìn tổng thể rất tự nhiên"
         ]
     }
-    arr = fallback.get(tone, fallback["Tự tin"])
-    return ensure_sentence(random.choice(arr))
+    return ensure_sentence(random.choice(fallback.get(tone, fallback["Tự tin"])))
+
 
 def build_dialogue_3_sentences(d_pool, tone):
     """
-    ÉP LUÔN 3 câu:
-    - bốc 3 dòng khác nhau (không trùng id) từ pool theo tone/shoe_type
-    - nếu thiếu thì fallback để đủ 3
+    ÉP 3 câu KHÁC NHAU VỀ Ý:
+    (1) cảm giác đi / ổn định
+    (2) phối đồ / tổng thể
+    (3) tình huống dùng / nhịp ngày
+    + chống lặp theo session (không quay lại câu đã dùng)
     """
-    k = 3
-    lines = []
-    local_used_ids = set()
-    local_used_text = set()
+    # --- Session memory chống lặp toàn app ---
+    if "used_sentence_texts" not in st.session_state:
+        st.session_state.used_sentence_texts = set()
 
+    def ok_new(sentence: str) -> bool:
+        s = ensure_sentence(sentence).strip()
+        if not s:
+            return False
+        key = s.lower()
+        if key in st.session_state.used_sentence_texts:
+            return False
+        st.session_state.used_sentence_texts.add(key)
+        return True
+
+    # --- 3 "bucket" template để câu khác nhau về ý ---
+    buckets = {
+        "feel": [
+            "Bước lên thấy {feel_word}, nhịp đi {step_word}.",
+            "Đi một vòng mà vẫn thấy {feel_word}, không bị {bad_word}.",
+            "Cảm giác dưới chân {feel_word}, chuyển động {step_word}."
+        ],
+        "style": [
+            "Nhìn tổng thể {style_word}, phối đồ {mix_word}.",
+            "Form lên chân {style_word}, nhìn {look_word}.",
+            "Tổng thể {style_word}, mình thích cách nó {look_word}."
+        ],
+        "use": [
+            "Hợp những ngày {day_word}, đi đâu cũng {use_word}.",
+            "Mình hay mang lúc {day_word}, vì cảm giác {use_word}.",
+            "Ngày {day_word} thì kiểu này rất {use_word}."
+        ]
+    }
+
+    vocab = {
+        "feel_word": ["êm vừa", "vững", "thoải mái", "đầm", "dễ chịu", "gọn chân"],
+        "step_word": ["mượt", "nhẹ", "đều", "dứt khoát", "ổn định"],
+        "bad_word": ["lỏng lẻo", "chênh", "mỏi nhanh", "bị trượt cảm giác"],
+        "style_word": ["gọn gàng", "tinh tế", "sạch sẽ", "hiện đại", "điềm tĩnh", "lịch sự"],
+        "mix_word": ["dễ", "rất tiện", "không phải nghĩ nhiều", "linh hoạt"],
+        "look_word": ["lên dáng", "giữ form nhìn ổn", "tạo cảm giác chỉn chu", "nhìn sáng tổng thể"],
+        "day_word": ["bận rộn", "di chuyển nhiều", "cần gọn nhẹ", "đi làm", "ra ngoài gặp bạn", "đi cà phê"],
+        "use_word": ["dễ chịu", "hợp nhịp", "thoải mái", "tự nhiên", "đỡ mất công chọn"]
+    }
+
+    # --- Helper tạo 1 câu từ bucket ---
+    def gen_from_bucket(bucket_name: str):
+        tpl = random.choice(buckets[bucket_name])
+        sent = tpl.format(
+            feel_word=random.choice(vocab["feel_word"]),
+            step_word=random.choice(vocab["step_word"]),
+            bad_word=random.choice(vocab["bad_word"]),
+            style_word=random.choice(vocab["style_word"]),
+            mix_word=random.choice(vocab["mix_word"]),
+            look_word=random.choice(vocab["look_word"]),
+            day_word=random.choice(vocab["day_word"]),
+            use_word=random.choice(vocab["use_word"]),
+        )
+        return ensure_sentence(sent)
+
+    # --- cố gắng lấy 1 câu CSV thật + 2 câu template khác ý ---
+    # chọn 1 câu CSV nhưng KHÔNG được giống template kiểu chung chung quá
+    csv_sentence = ""
     tries = 0
-    while len(lines) < k and tries < 300:
+    while tries < 200 and d_pool:
         tries += 1
-        if not d_pool:
-            break
         d = random.choice(d_pool)
-        did = safe_text(d.get("id")) or f"auto_{tries}"
-        if did in local_used_ids:
+        t = get_one_line(d, tone)
+        # lọc câu quá ngắn / kiểu chung chung giống nhau
+        if len(t) < 18:
             continue
+        if ok_new(t):
+            csv_sentence = t
+            break
 
-        line = get_one_line(d, tone)
-        if not line:
-            continue
+    # 2 câu template khác bucket để chắc chắn khác ý
+    out = []
+    if csv_sentence:
+        out.append(csv_sentence)
 
-        # chống trùng nội dung trong 3 câu
-        norm = line.lower().strip()
-        if norm in local_used_text:
-            continue
+    # luôn tạo theo 2 bucket khác nhau để không na ná
+    for bucket in ["feel", "style", "use"]:
+        if len(out) >= 3:
+            break
+        t = gen_from_bucket(bucket)
+        # chống lặp
+        if ok_new(t):
+            out.append(t)
 
-        local_used_ids.add(did)
-        local_used_text.add(norm)
-        lines.append(line)
+    # nếu vẫn thiếu -> bù bằng template random cho đủ 3
+    while len(out) < 3:
+        t = gen_from_bucket(random.choice(["feel", "style", "use"]))
+        if ok_new(t):
+            out.append(t)
 
-    while len(lines) < k:
-        line = get_one_line({}, tone)
-        norm = line.lower().strip()
-        if norm in local_used_text:
-            continue
-        local_used_text.add(norm)
-        lines.append(line)
-
-    return " ".join(lines[:3])
+    return " ".join(out[:3])
 
 def detect_shoe(name):
     n = (name or "").lower()
