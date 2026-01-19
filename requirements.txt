@@ -1,4 +1,5 @@
-streamlit==1.41.1
-pandas==2.2.3
-Pillow==11.0.0
+streamlit
+pandas
+pillow
 google-generativeai==0.8.3
+protobuf<5
