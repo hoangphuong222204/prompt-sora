@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import random
-import base64
 import re
+import json
 import unicodedata
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -13,7 +13,7 @@ from PIL import Image
 # =========================
 st.set_page_config(page_title="Sora Prompt Studio Pro - Director Edition", layout="wide")
 st.title("Sora Prompt Studio Pro - Director Edition")
-st.caption("Prompt 1 & 2 - Total 10s - Multi-scene - Anti-duplicate - TikTok Shop SAFE - SORA ASCII SAFE")
+st.caption("Prompt 1 & 2 - Total 10s - Multi-shot - Anti-duplicate - TikTok Shop SAFE - Copy Safe Unicode")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 
@@ -21,28 +21,74 @@ SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "lux
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
 # =========================
-# COPY BUTTON (1 CLICK)
+# TEXT NORMALIZE (COPY SAFE)
 # =========================
-def copy_button(text: str, key: str):
-    b64 = base64.b64encode(text.encode("utf-8")).decode("utf-8")
+ZERO_WIDTH_PATTERN = r"[\u200b\u200c\u200d\uFEFF]"
+
+def normalize_text(s: str) -> str:
+    if s is None:
+        return ""
+    s = str(s)
+    # Normalize combining marks to composed form
+    try:
+        s = unicodedata.normalize("NFC", s)
+    except Exception:
+        pass
+    # Remove zero-width / BOM
+    s = re.sub(ZERO_WIDTH_PATTERN, "", s)
+    # Normalize newlines
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    return s
+
+def safe_text(v) -> str:
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+    s = normalize_text(str(v).strip())
+    if s.lower() == "nan":
+        return ""
+    return s
+
+def compact_spaces(s: str) -> str:
+    s = normalize_text(s)
+    s = re.sub(r"[ \t]+", " ", s).strip()
+    return s
+
+# =========================
+# COPY BUTTON (UNICODE SAFE)
+# =========================
+def copy_button_unicode_safe(text: str, key: str):
+    """
+    Copy via navigator.clipboard.writeText using JSON string payload (keeps Unicode safely).
+    Avoid base64/atob issues and avoids hidden characters via normalize_text.
+    """
+    text = normalize_text(text)
+    payload = json.dumps(text)  # safe JS string
     html = f"""
     <button id="{key}" style="
         padding:8px 14px;border-radius:10px;border:1px solid #ccc;
         cursor:pointer;background:#fff;font-weight:700;">COPY</button>
     <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
     <script>
-    const btn = document.getElementById("{key}");
-    const s = document.getElementById("{key}_s");
-    btn.onclick = async () => {{
-        try {{
-            await navigator.clipboard.writeText(atob("{b64}"));
-            s.innerText = "Copied";
-            setTimeout(()=>s.innerText="",1500);
-        }} catch(e) {{
-            s.innerText = "Clipboard blocked";
-            setTimeout(()=>s.innerText="",2500);
-        }}
-    }}
+    (function() {{
+        const btn = document.getElementById("{key}");
+        const s = document.getElementById("{key}_s");
+        const text = {payload};
+        btn.onclick = async () => {{
+            try {{
+                await navigator.clipboard.writeText(text);
+                s.innerText = "Copied";
+                setTimeout(()=>s.innerText="",1500);
+            }} catch(e) {{
+                s.innerText = "Clipboard blocked";
+                setTimeout(()=>s.innerText="",2500);
+            }}
+        }};
+    }})();
     </script>
     """
     st.components.v1.html(html, height=42)
@@ -56,43 +102,51 @@ if missing:
     st.stop()
 
 # =========================
-# LOAD CSV
+# LOAD CSV (UTF-8 friendly)
 # =========================
 @st.cache_data
+def read_csv_flexible(path: str) -> pd.DataFrame:
+    # Try utf-8-sig first to handle BOM, then utf-8
+    try:
+        return pd.read_csv(path, encoding="utf-8-sig")
+    except Exception:
+        return pd.read_csv(path, encoding="utf-8", errors="replace")
+
+@st.cache_data
 def load_dialogues():
-    df = pd.read_csv("dialogue_library.csv")
+    df = read_csv_flexible("dialogue_library.csv")
     df.columns = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), df.columns.tolist()
 
 @st.cache_data
 def load_scenes():
-    df = pd.read_csv("scene_library.csv")
+    df = read_csv_flexible("scene_library.csv")
     df.columns = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), df.columns.tolist()
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = pd.read_csv("disclaimer_prompt2.csv")
+    df = read_csv_flexible("disclaimer_prompt2.csv")
     cols = [c.strip() for c in df.columns.tolist()]
     df.columns = cols
 
     if "disclaimer" in cols:
         arr = df["disclaimer"].dropna().astype(str).tolist()
-        return [x.strip() for x in arr if x.strip()]
+        return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
 
-    preferred = ["text", "mien_tru", "mien tru", "note", "content", "noi_dung", "line", "script"]
+    preferred = ["text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line", "script"]
     for c in preferred:
         if c in cols:
             arr = df[c].dropna().astype(str).tolist()
-            return [x.strip() for x in arr if x.strip()]
+            return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
 
     if len(cols) >= 2 and cols[0].lower() in ["id", "stt", "no"]:
         arr = df[cols[1]].dropna().astype(str).tolist()
-        return [x.strip() for x in arr if x.strip()]
+        return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
 
     last = cols[-1]
     arr = df[last].dropna().astype(str).tolist()
-    return [x.strip() for x in arr if x.strip()]
+    return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
 
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
@@ -113,40 +167,6 @@ if "gemini_api_key" not in st.session_state:
 # =========================
 # UTILS
 # =========================
-def safe_text(v) -> str:
-    if v is None:
-        return ""
-    try:
-        if pd.isna(v):
-            return ""
-    except Exception:
-        pass
-    s = str(v).strip()
-    if s.lower() == "nan":
-        return ""
-    return s
-
-def to_ascii(s: str) -> str:
-    """
-    Convert Vietnamese/Unicode text to ASCII-safe text (remove accents).
-    """
-    if not s:
-        return ""
-    s = s.replace("Đ", "D").replace("đ", "d")
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    # keep basic ascii, replace odd spaces
-    s = s.replace("\u00a0", " ")
-    return s
-
-def clean_ascii_line(s: str) -> str:
-    s = to_ascii(s)
-    # remove non-ascii leftovers
-    s = s.encode("ascii", errors="ignore").decode("ascii", errors="ignore")
-    # collapse spaces
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
 def pick_unique(pool, used_ids: set, key: str):
     def get_id(x):
         val = safe_text(x.get(key))
@@ -174,6 +194,12 @@ def filter_dialogues(shoe_type: str, tone: str):
     return shoe_f if shoe_f else tone_f
 
 def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
+    """
+    Total duration ALWAYS 10.0 seconds.
+    2 shots: 0-5, 5-10
+    3 shots: 0-3.3, 3.3-6.7, 6.7-10
+    4 shots: 0-2.5, 2.5-5, 5-7.5, 7.5-10
+    """
     n = max(2, min(4, int(n)))
     if n == 2:
         cuts = [0.0, 5.0, 10.0]
@@ -192,88 +218,16 @@ def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
     return out
 
 # =========================
-# VN -> EN ASCII mapping (for Sora stability)
-# =========================
-LIGHTING_MAP = {
-    "anh vang xien": "warm side light",
-    "anh vang": "warm light",
-    "anh trang": "clean white light",
-    "anh tu nhien": "natural daylight",
-}
-LOCATION_MAP = {
-    "duong pho sang som": "morning street",
-    "san tap": "training ground",
-    "quan ca phe": "daylight cafe",
-    "studio": "clean studio",
-}
-WEATHER_MAP = {
-    "suong nhe": "light mist",
-    "gio nhe": "light breeze",
-    "nang diu": "soft sunlight",
-}
-MOOD_MAP = {
-    "nang dong": "energetic",
-    "manh me": "strong",
-    "lang man": "calm romantic",
-}
-MOTION_MAP = {
-    "orbit cham": "slow orbit",
-    "tracking nhanh": "fast tracking",
-    "crane xuong": "crane down",
-    "pan ngang": "horizontal pan",
-    "wide dolly": "wide dolly",
-}
-
-def map_field(v: str, mapping: dict, fallback_prefix: str = "") -> str:
-    vv = clean_ascii_line(v).lower()
-    if vv in mapping:
-        return mapping[vv]
-    # try fuzzy contains
-    for k, out in mapping.items():
-        if k and k in vv:
-            return out
-    if not vv:
-        return ""
-    return (fallback_prefix + vv).strip()
-
-def scene_to_en_ascii(scene: dict) -> dict:
-    lighting = map_field(safe_text(scene.get("lighting")), LIGHTING_MAP)
-    location = map_field(safe_text(scene.get("location")), LOCATION_MAP)
-    weather = map_field(safe_text(scene.get("weather")), WEATHER_MAP)
-    mood = map_field(safe_text(scene.get("mood")), MOOD_MAP)
-    motion = map_field(safe_text(scene.get("motion")), MOTION_MAP)
-
-    # fallback: use ascii cleaned vn text if mapping misses
-    if not lighting:
-        lighting = clean_ascii_line(safe_text(scene.get("lighting")))
-    if not location:
-        location = clean_ascii_line(safe_text(scene.get("location")))
-    if not weather:
-        weather = clean_ascii_line(safe_text(scene.get("weather")))
-    if not mood:
-        mood = clean_ascii_line(safe_text(scene.get("mood")))
-    if not motion:
-        motion = clean_ascii_line(safe_text(scene.get("motion")))
-
-    return {
-        "lighting": lighting,
-        "location": location,
-        "weather": weather,
-        "mood": mood,
-        "motion": motion,
-    }
-
-# =========================
 # FILENAME HEURISTIC (fallback only)
 # =========================
 def detect_shoe_from_filename(name: str) -> str:
     n = (name or "").lower()
     rules = [
         ("boots",   ["boot", "chelsea", "combat", "martin"]),
-        ("sandals", ["sandal", "sandals", "dep", "dep", "slipper", "slides"]),
+        ("sandals", ["sandal", "sandals", "dep", "dép", "slipper", "slides"]),
         ("leather", ["loafer", "loafers", "moc", "moccasin", "horsebit", "oxford", "derby", "tassel", "brogue",
-                     "giaytay", "giay tay", "giay_da", "giayda", "dressshoe"]),
-        ("runner",  ["runner", "running", "jog", "marathon", "gym", "train", "thethao", "the thao", "sport"]),
+                     "giaytay", "giày tây", "giay_da", "giayda", "dressshoe"]),
+        ("runner",  ["runner", "running", "jog", "marathon", "gym", "train", "thethao", "thể thao", "sport"]),
         ("casual",  ["casual", "daily", "everyday", "basic"]),
         ("luxury",  ["lux", "premium", "quietlux", "quiet_lux", "highend", "boutique"]),
         ("sneaker", ["sneaker", "sneakers", "kicks", "street"])
@@ -289,10 +243,6 @@ def detect_shoe_from_filename(name: str) -> str:
 # GEMINI VISION DETECT (AI priority)
 # =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[str], str]:
-    """
-    Returns (shoe_type or None, raw_text).
-    Uses list_models to avoid 404 NotFound and handles quota/rate issues by fallback.
-    """
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
@@ -315,7 +265,6 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
             return None, "NO_MODELS"
 
         preferred = [
-            "models/gemini-2.5-flash",
             "models/gemini-1.5-flash",
             "models/gemini-1.5-pro",
             "models/gemini-pro-vision",
@@ -351,110 +300,100 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         for t in SHOE_TYPES:
             if t in norm:
                 return t, raw
-        return None, raw
 
+        return None, raw
     except Exception as e:
-        msg = f"{type(e).__name__}: {e}"
-        # common: ResourceExhausted / quota
-        return None, f"CALL_FAIL: {msg}"
+        return None, f"CALL_FAIL: {type(e).__name__}: {e}"
 
 # =========================
-# DIALOGUE BANK (VN stored, output will be ASCII)
+# DIALOGUE BANK
 # =========================
 TONE_BANK = {
-    "Tu tin": {
+    "Tự tin": {
         "open": [
-            "Hom nay minh chon kieu gon gang de ra ngoai cho tu tin hon.",
-            "Minh thich cam giac buoc di gon gon va co nhip.",
-            "Minh uu tien tong the sach, de phoi va nhin sang dang."
+            "Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn.",
+            "Mình thích cảm giác bước đi nhìn gọn và có nhịp.",
+            "Mình ưu tiên tổng thể sạch, dễ phối và nhìn sáng dáng."
         ],
         "mid": [
-            "Di mot luc thay nhip buoc deu, cam giac kha on dinh.",
-            "Minh thay form len chan nhin gon, de di suot ngay.",
-            "Cam giac di chuyen nhe nhang, khong bi roi mat."
+            "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định.",
+            "Mình thấy form lên chân nhìn gọn, dễ đi suốt ngày.",
+            "Cảm giác di chuyển nhẹ nhàng, không bị rối mắt."
         ],
         "close": [
-            "Tong the don gian nhung co diem tinh te rieng.",
-            "Minh thich kieu toi gian de tao phong cach.",
-            "Voi minh, gon gang la du dep roi."
+            "Nhìn tổng thể đơn giản nhưng có điểm tinh tế riêng.",
+            "Mình thích kiểu càng tối giản càng dễ tạo phong cách.",
+            "Với mình, gọn gàng là đủ đẹp rồi."
         ],
     },
-    "Truyen cam": {
+    "Truyền cảm": {
         "open": [
-            "Co nhung doi mang vao la thay tam trang diu lai lien.",
-            "Minh thich cam giac nhe nhang, cham rai ma van chi chu.",
-            "Nhin ky moi thay cai hay nam o su tinh gian."
+            "Có những đôi mang vào là thấy tâm trạng dịu lại liền.",
+            "Mình thích cảm giác nhẹ nhàng, chậm rãi mà vẫn chỉn chu.",
+            "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản."
         ],
         "mid": [
-            "Di cham thoi nhung cam giac lai rat thu tha.",
-            "Minh thich nhip buoc em, tao cam giac de chiu.",
-            "Cang nhin cang thay tong the hai hoa."
+            "Đi chậm thôi nhưng cảm giác lại rất thư thả.",
+            "Mình thích nhịp bước êm, tạo cảm giác dễ chịu.",
+            "Càng nhìn càng thấy tổng thể hài hòa."
         ],
         "close": [
-            "Moi buoc nhu giu lai mot chut binh yen.",
-            "Vua du tinh te de nhin lau khong chan.",
-            "Doi khi chi can vay la dep."
+            "Mỗi bước như giữ lại một chút bình yên.",
+            "Vừa đủ tinh tế để nhìn lâu không chán.",
+            "Đôi khi chỉ cần vậy là đẹp."
         ],
     },
-    "Manh me": {
+    "Mạnh mẽ": {
         "open": [
-            "Hom nay minh muon nhip buoc dut khoat hon mot chut.",
-            "Minh thich cam giac chac chan khi di chuyen nhanh.",
-            "Ngay ban ron thi minh can su gon va on dinh."
+            "Hôm nay mình muốn nhịp bước dứt khoát hơn một chút.",
+            "Mình thích cảm giác chắc chân khi di chuyển nhanh.",
+            "Ngày bận rộn thì mình cần sự gọn và ổn định."
         ],
         "mid": [
-            "Di nhanh van thay kiem soat tot, khong bi chong chenh.",
-            "Nhip buoc chac, cam giac bam chan on.",
-            "Cam giac gon gang giup minh tu tin hon khi di chuyen."
+            "Đi nhanh vẫn thấy kiểm soát tốt, không bị chông chênh.",
+            "Nhịp bước chắc, cảm giác bám chân ổn.",
+            "Cảm giác gọn gàng giúp mình tự tin hơn khi di chuyển."
         ],
         "close": [
-            "Tong the nhin khoe ma van sach.",
-            "Gon, chac, de phoi, dung gu minh.",
-            "Chi can on dinh la minh yen tam."
+            "Tổng thể nhìn khỏe mà vẫn sạch.",
+            "Gọn gàng, chắc chắn, dễ phối, đúng gu mình.",
+            "Chỉ cần ổn định là mình yên tâm."
         ],
     },
-    "Lang man": {
+    "Lãng mạn": {
         "open": [
-            "Chieu nay ra ngoai chut, tu nhien mood nhe hon.",
-            "Minh thich kieu di cham, nhin moi thu mem lai.",
-            "Nhung ngay nhu vay, minh uu tien cam giac thu tha."
+            "Chiều nay ra ngoài chút, tự nhiên mood nhẹ hơn.",
+            "Mình thích kiểu đi chậm, nhìn mọi thứ mềm lại.",
+            "Những ngày như vậy, mình ưu tiên cảm giác thư thả."
         ],
         "mid": [
-            "Nhip buoc nhe, nhin tong the rat hai hoa.",
-            "Cam giac vua van khien minh muon di them mot doan nua.",
-            "Don gian thoi nhung len hinh lai thay rat diu."
+            "Nhịp bước nhẹ, nhìn tổng thể rất hài hòa.",
+            "Cảm giác vừa vặn khiến mình muốn đi thêm một đoạn nữa.",
+            "Đơn giản thôi nhưng lên hình lại thấy rất dịu."
         ],
         "close": [
-            "Cang toi gian cang de tao cam xuc rieng.",
-            "Minh thich su tinh te nam o nhung thu gian don.",
-            "Mot chut nhe nhang la du."
+            "Càng tối giản càng dễ tạo cảm xúc riêng.",
+            "Mình thích sự tinh tế nằm ở những thứ giản đơn.",
+            "Một chút nhẹ nhàng là đủ."
         ],
     },
-    "Tu nhien": {
+    "Tự nhiên": {
         "open": [
-            "Minh uu tien thoai mai, kieu mang la muon di tiep.",
-            "Hom nay minh chon phong cach tu nhien, khong cau ky.",
-            "Di ra ngoai ma van thay nhe nhang la minh thich."
+            "Mình ưu tiên thoải mái, kiểu mang là muốn đi tiếp.",
+            "Hôm nay mình chọn phong cách tự nhiên, không cầu kỳ.",
+            "Đi ra ngoài mà vẫn thấy nhẹ nhàng là mình thích."
         ],
         "mid": [
-            "Cam giac di chuyen mem, de chiu.",
-            "Nhin tong the rat tu nhien, khong bi gong.",
-            "Minh thay hop nhung ngay muon tha long."
+            "Cảm giác di chuyển mềm, dễ chịu.",
+            "Nhìn tổng thể rất tự nhiên, không bị gồng.",
+            "Mình thấy hợp những ngày muốn thả lỏng."
         ],
         "close": [
-            "Gon gang vay thoi nhung lai de dung hang ngay.",
-            "Minh thich kieu don gian ma nhin sach.",
-            "Nhe nhang la du dep roi."
+            "Gọn gàng vậy thôi nhưng lại dễ dùng hằng ngày.",
+            "Mình thích kiểu đơn giản mà nhìn sạch.",
+            "Nhẹ nhàng là đủ đẹp rồi."
         ],
     }
-}
-
-TONE_UI_MAP = {
-    "Truyen cam": "Truyen cam",
-    "Tu tin": "Tu tin",
-    "Manh me": "Manh me",
-    "Lang man": "Lang man",
-    "Tu nhien": "Tu nhien",
 }
 
 def split_sentences(text: str) -> List[str]:
@@ -465,135 +404,131 @@ def split_sentences(text: str) -> List[str]:
     return parts
 
 def get_dialogue_from_csv(row: dict) -> str:
-    for col in ["dialogue", "text", "line", "content", "script", "noi_dung", "noi dung"]:
+    for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row and safe_text(row.get(col)):
             return safe_text(row.get(col))
     return ""
 
-def ensure_period(x: str) -> str:
-    x = clean_ascii_line(x)
-    if not x:
-        return ""
-    if x.endswith((".", "!", "?")):
-        return x
-    return x + "."
-
-def get_dialogue_3_sentences(row: dict, tone_key: str) -> str:
-    """
-    Prompt 1: exactly 3 ASCII lines.
-    """
-    bank = TONE_BANK.get(tone_key, TONE_BANK["Tu tin"])
-    candidate = get_dialogue_from_csv(row)
-    if candidate:
-        candidate = clean_ascii_line(candidate)
-        parts = split_sentences(candidate)
-        parts = [clean_ascii_line(p) for p in parts if clean_ascii_line(p)]
-    else:
-        parts = []
-
-    if len(parts) >= 3:
-        a, b, c = parts[0], parts[1], parts[2]
-    elif len(parts) == 2:
-        a, b = parts[0], parts[1]
-        c = random.choice(bank["close"])
-    elif len(parts) == 1:
-        a = parts[0]
-        b = random.choice(bank["mid"])
-        c = random.choice(bank["close"])
-    else:
-        a = random.choice(bank["open"])
-        b = random.choice(bank["mid"])
-        c = random.choice(bank["close"])
-
-    if b.lower() == a.lower():
-        b = random.choice(bank["mid"])
-    if c.lower() in {a.lower(), b.lower()}:
-        c = random.choice(bank["close"])
-
-    a, b, c = ensure_period(a), ensure_period(b), ensure_period(c)
-    return f"{a}\n{b}\n{c}"
-
-def get_dialogue_2_sentences(row: dict, tone_key: str) -> str:
-    """
-    Prompt 2: exactly 2 ASCII lines. Disclaimer will be line 3.
-    """
-    bank = TONE_BANK.get(tone_key, TONE_BANK["Tu tin"])
-    candidate = get_dialogue_from_csv(row)
-    if candidate:
-        candidate = clean_ascii_line(candidate)
-        parts = split_sentences(candidate)
-        parts = [clean_ascii_line(p) for p in parts if clean_ascii_line(p)]
-    else:
-        parts = []
-
-    if len(parts) >= 2:
-        a, b = parts[0], parts[1]
-    elif len(parts) == 1:
-        a = parts[0]
-        b = random.choice(bank["mid"])
-    else:
-        a = random.choice(bank["open"])
-        b = random.choice(bank["mid"])
-
-    if b.lower() == a.lower():
-        b = random.choice(bank["mid"])
-
-    a, b = ensure_period(a), ensure_period(b)
-    return f"{a}\n{b}"
-
-def short_disclaimer_ascii(raw: str) -> str:
-    s = clean_ascii_line(raw)
+def ensure_end_punct(s: str) -> str:
+    s = compact_spaces(s)
     if not s:
-        s = "Noi dung chi mang tinh chia se trai nghiem."
-    s = ensure_period(s)
-    # keep it short
-    if len(s) > 140:
-        s = s[:140].rstrip() + "."
-    return s
+        return ""
+    if s.endswith((".", "!", "?")):
+        return s
+    return s + "."
+
+def get_dialogue_3_sentences(row: dict, tone: str) -> str:
+    candidate = get_dialogue_from_csv(row)
+    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
+
+    if candidate:
+        parts = split_sentences(candidate)
+        if len(parts) >= 3:
+            a, b, c = parts[0], parts[1], parts[2]
+        elif len(parts) == 2:
+            a, b = parts[0], parts[1]
+            c = random.choice(bank["close"])
+        elif len(parts) == 1:
+            a = parts[0]
+            b = random.choice(bank["mid"])
+            c = random.choice(bank["close"])
+        else:
+            a = random.choice(bank["open"])
+            b = random.choice(bank["mid"])
+            c = random.choice(bank["close"])
+    else:
+        a = random.choice(bank["open"])
+        b = random.choice(bank["mid"])
+        c = random.choice(bank["close"])
+
+    if b.strip().lower() == a.strip().lower():
+        b = random.choice(bank["mid"])
+    if c.strip().lower() in {a.strip().lower(), b.strip().lower()}:
+        c = random.choice(bank["close"])
+
+    a, b, c = ensure_end_punct(a), ensure_end_punct(b), ensure_end_punct(c)
+    return normalize_text(f"{a}\n{b}\n{c}")
+
+def get_dialogue_2_sentences(row: dict, tone: str) -> str:
+    candidate = get_dialogue_from_csv(row)
+    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
+
+    if candidate:
+        parts = split_sentences(candidate)
+        if len(parts) >= 2:
+            a, b = parts[0], parts[1]
+        elif len(parts) == 1:
+            a = parts[0]
+            b = random.choice(bank["mid"])
+        else:
+            a = random.choice(bank["open"])
+            b = random.choice(bank["mid"])
+    else:
+        a = random.choice(bank["open"])
+        b = random.choice(bank["mid"])
+
+    if b.strip().lower() == a.strip().lower():
+        b = random.choice(bank["mid"])
+
+    a, b = ensure_end_punct(a), ensure_end_punct(b)
+    return normalize_text(f"{a}\n{b}")
+
+def short_disclaimer(raw: str) -> str:
+    s = compact_spaces(normalize_text(raw))
+    if not s:
+        s = "Nội dung chỉ mang tính chia sẻ trải nghiệm."
+    s = ensure_end_punct(s)
+    if len(s) > 160:
+        s = s[:160].rstrip() + "."
+    return normalize_text(s)
 
 # =========================
-# PROMPT BUILDER (ASCII SAFE)
+# PROMPT BUILDER (PLAIN TEXT, UNICODE SAFE)
 # =========================
 def build_prompt_unified(
-    mode: str,  # "p1" or "p2"
+    mode: str,
     shoe_type: str,
     shoe_name: str,
     scene_list: List[dict],
     timeline: List[Tuple[float, float]],
     voice_lines: str,
 ) -> str:
-    shoe_name_a = clean_ascii_line(shoe_name)
-    shoe_type_a = clean_ascii_line(shoe_type)
+    title = "PROMPT 1 - NO CAMEO" if mode == "p1" else "PROMPT 2 - WITH CAMEO"
 
     if mode == "p1":
-        title = "PROMPT 1 - NO CAMEO"
-        cast_rule = (
-            "CAST RULE\n"
+        cast_rule_plain = (
             "No people on screen\n"
             "No cameo\n"
-            f"Voice ID: {CAMEO_VOICE_ID}\n"
+            f"Voice ID: {CAMEO_VOICE_ID}"
         )
     else:
-        title = "PROMPT 2 - WITH CAMEO"
-        cast_rule = (
-            "CAST RULE\n"
+        cast_rule_plain = (
             "Cameo appears naturally like a phone video review\n"
             f"Cameo and Voice ID: {CAMEO_VOICE_ID}\n"
-            "No hard call to action, no price, no discount, no guarantees\n"
+            "No hard call to action, no price, no discount, no guarantees"
         )
 
-    # scene lines
+    # Scene block (English prompt style, but values can be Vietnamese; copy-safe keeps them correct)
     scene_lines = []
-    for i, (sc, (a, b)) in enumerate(zip(scene_list, timeline), start=1):
-        en = scene_to_en_ascii(sc)
+    for (sc, (a, b)) in zip(scene_list, timeline):
+        loc = compact_spaces(safe_text(sc.get("location")))
+        light = compact_spaces(safe_text(sc.get("lighting")))
+        mot = compact_spaces(safe_text(sc.get("motion")))
+        wea = compact_spaces(safe_text(sc.get("weather")))
+        mood = compact_spaces(safe_text(sc.get("mood")))
+
+        # Keep plain, avoid special symbols
         scene_lines.append(
-            f"{a:.1f}-{b:.1f}s: location {en['location']}, lighting {en['lighting']}, motion {en['motion']}, "
-            f"weather {en['weather']}, mood {en['mood']}"
+            f"{a:.1f}-{b:.1f}s: location {loc}, lighting {light}, motion {mot}, weather {wea}, mood {mood}"
         )
+    scene_block_plain = "\n".join(scene_lines)
 
-    scene_block = "\n".join(scene_lines)
+    shoe_name = compact_spaces(normalize_text(shoe_name))
+    shoe_type = compact_spaces(normalize_text(shoe_type))
+    voice_lines = normalize_text(voice_lines)
 
-    prompt = f"""SORA VIDEO PROMPT - {title} - TOTAL 10s
+    prompt_text = f"""
+SORA VIDEO PROMPT - {title} - TOTAL 10s
 
 VIDEO SETUP
 Vertical 9:16
@@ -605,7 +540,9 @@ No logo
 No watermark
 No blur, haze, or glow
 
-{cast_rule}
+CAST RULE
+{cast_rule_plain}
+
 SHOE REFERENCE LOCK
 Use only the uploaded shoe image as reference
 Keep 100 percent shoe identity: toe shape, panels, stitching, sole, proportions
@@ -613,11 +550,11 @@ No redesign, no deformation, no guessing, no color shift
 Lace rule: if the reference shoe has laces then keep laces in all frames; if no laces then absolutely no laces
 
 PRODUCT
-shoe_name: {shoe_name_a}
-shoe_type: {shoe_type_a}
+shoe_name: {shoe_name}
+shoe_type: {shoe_type}
 
-SCENES INSIDE 10s
-{scene_block}
+SHOTS INSIDE 10s
+{scene_block_plain}
 
 AUDIO TIMELINE
 0.0-1.2s: no voice, light ambient only
@@ -627,57 +564,15 @@ AUDIO TIMELINE
 VOICEOVER 1.2-6.9s
 {voice_lines}
 """
-    # ensure pure ascii output
-    prompt = clean_ascii_line(prompt.replace("\r\n", "\n").replace("\r", "\n"))
-    # but we must keep newlines; clean_ascii_line collapses them, so do a safer ascii pass:
-    prompt = to_ascii(prompt)
-    prompt = prompt.encode("ascii", errors="ignore").decode("ascii", errors="ignore")
-    # restore readable newlines by rebuilding from original template approach:
-    # Instead of collapsing, do per-line cleaning:
-    lines = []
-    for line in f"""SORA VIDEO PROMPT - {title} - TOTAL 10s
-
-VIDEO SETUP
-Vertical 9:16
-Total duration exactly 10 seconds
-Ultra sharp 4K output
-Realistic motion, not a still image
-No on screen text
-No logo
-No watermark
-No blur, haze, or glow
-
-{cast_rule}
-SHOE REFERENCE LOCK
-Use only the uploaded shoe image as reference
-Keep 100 percent shoe identity: toe shape, panels, stitching, sole, proportions
-No redesign, no deformation, no guessing, no color shift
-Lace rule: if the reference shoe has laces then keep laces in all frames; if no laces then absolutely no laces
-
-PRODUCT
-shoe_name: {shoe_name_a}
-shoe_type: {shoe_type_a}
-
-SCENES INSIDE 10s
-{scene_block}
-
-AUDIO TIMELINE
-0.0-1.2s: no voice, light ambient only
-1.2-6.9s: voice on
-6.9-10.0s: voice off, gentle fade out
-
-VOICEOVER 1.2-6.9s
-{voice_lines}
-""".splitlines():
-        lines.append(clean_ascii_line(line))
-    return "\n".join(lines).strip()
+    # Final normalize for copy safety
+    return normalize_text(prompt_text).strip()
 
 # =========================
-# SIDEBAR: GEMINI KEY (session only)
+# SIDEBAR: GEMINI KEY (session)
 # =========================
 with st.sidebar:
     st.markdown("### Gemini API Key (optional)")
-    st.caption("Used for AI shoe_type detection. If AI fails, filename fallback is used.")
+    st.caption("AI detects shoe_type from image. If AI fails, filename fallback is used.")
 
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
     c1, c2 = st.columns(2)
@@ -703,25 +598,26 @@ left, right = st.columns([1.05, 0.95])
 with left:
     uploaded = st.file_uploader("Upload shoe image", type=["jpg", "png", "jpeg"])
     mode = st.radio("Prompt mode", ["PROMPT 1 - No cameo", "PROMPT 2 - With cameo"], index=0)
-    tone_ui = st.selectbox("Tone", ["Truyen cam", "Tu tin", "Manh me", "Lang man", "Tu nhien"], index=1)
-    scene_count = st.slider("Scene count (inside total 10s)", 2, 4, 3)
+    tone = st.selectbox("Tone", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
+
+    # Force 4 shots by default, still allow 2-4
+    scene_count = st.slider("Shots inside total 10s", 2, 4, 4)
     count = st.slider("Prompts per click", 1, 10, 5)
 
 with right:
-    st.subheader("Quick guide")
-    st.write("1) Upload image 2) Choose Prompt 1/2 3) Choose tone 4) Choose scene count 5) Generate 6) Copy")
-    st.caption("Dialogue columns: " + ", ".join(dialogue_cols))
-    st.caption("Scene columns: " + ", ".join(scene_cols))
-    st.info("Total video duration is ALWAYS 10 seconds. Scenes are split inside 10s.")
-    st.info("Prompt 1: 3 voice lines (no disclaimer). Prompt 2: 2 voice lines + 1 short disclaimer (3 total lines).")
-    st.info("Output is ASCII-only to avoid Sora paste text corruption.")
+    st.subheader("Guide")
+    st.write("Upload image, choose Prompt 1 or 2, choose tone, choose shots (default 4), click Generate, then Copy.")
+    st.caption("Dialogue columns: " + ", ".join([str(x) for x in dialogue_cols]))
+    st.caption("Scene columns: " + ", ".join([str(x) for x in scene_cols]))
+    st.info("Total video duration is always 10 seconds. Default is 4 shots (0-2.5, 2.5-5, 5-7.5, 7.5-10).")
+    st.info("Prompt 1: 3 voice lines. Prompt 2: 2 voice lines plus 1 short disclaimer (3 lines total).")
+    st.info("Copy Safe Unicode is enabled to prevent broken Vietnamese characters when pasting into Sora.")
 
 st.divider()
 
 if uploaded:
     shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
     img = Image.open(uploaded).convert("RGB")
-
     st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
 
     detect_mode = st.selectbox(
@@ -759,23 +655,21 @@ if uploaded:
     btn_label = "Generate PROMPT 1" if mode.startswith("PROMPT 1") else "Generate PROMPT 2"
     if st.button(btn_label, use_container_width=True):
         arr = []
-        tone_key = TONE_UI_MAP.get(tone_ui, "Tu tin")
-
         for _ in range(count):
-            d_pool = filter_dialogues(shoe_type, tone_ui)
+            d_pool = filter_dialogues(shoe_type, tone)
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
             scene_list = pick_n_unique_scenes(shoe_type, scene_count)
             timeline = split_10s_timeline(scene_count)
 
             if mode.startswith("PROMPT 1"):
-                voice_lines = get_dialogue_3_sentences(d, tone_key)
+                voice_lines = get_dialogue_3_sentences(d, tone)
                 p = build_prompt_unified("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
             else:
-                voice_2 = get_dialogue_2_sentences(d, tone_key)
-                disclaimer_raw = random.choice(disclaimers_p2) if disclaimers_p2 else "Noi dung chi mang tinh chia se trai nghiem."
-                disclaimer = short_disclaimer_ascii(disclaimer_raw)
-                voice_lines = f"{voice_2}\n{disclaimer}"
+                voice_2 = get_dialogue_2_sentences(d, tone)
+                disclaimer_raw = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung chỉ mang tính chia sẻ trải nghiệm."
+                disclaimer = short_disclaimer(disclaimer_raw)
+                voice_lines = normalize_text(f"{voice_2}\n{disclaimer}")
                 p = build_prompt_unified("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             arr.append(p)
@@ -788,8 +682,9 @@ if uploaded:
         tabs = st.tabs([str(i + 1) for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
+                # Display as plain text (copy-safe)
                 st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
-                copy_button(prompts[i], key=f"copy_view_{i}")
+                copy_button_unicode_safe(prompts[i], key=f"copy_{i}")
 
 else:
     st.warning("Upload a shoe image to begin.")
