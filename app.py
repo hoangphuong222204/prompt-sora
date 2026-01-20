@@ -16,11 +16,7 @@ st.title("Sora Prompt Studio Pro - Director Edition")
 st.caption("Prompt 1 and 2 - Total 10s - Multi-scene - Voice timeline - Anti-duplicate - TikTok Shop SAFE")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
-
-# shoe_type labels used in your CSV libraries
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
-
-# Minimal files
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
 # =========================
@@ -59,42 +55,90 @@ if missing:
     st.stop()
 
 # =========================
+# UTILS
+# =========================
+def safe_text(v) -> str:
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except Exception:
+        pass
+
+    s = str(v).strip()
+    if s.lower() == "nan":
+        return ""
+
+    # FIX Vietnamese mojibake (UTF-8 read as latin1)
+    if "Ã" in s or "Â" in s or "Ä" in s:
+        try:
+            s2 = s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            if s2 and s2.count("Ã") < s.count("Ã"):
+                s = s2
+        except Exception:
+            pass
+
+    return s
+
+def dot(x: str) -> str:
+    x = safe_text(x)
+    if not x:
+        return ""
+    return x if x.endswith((".", "!", "?")) else x + "."
+
+def pick_unique(pool, used_ids: set, key: str):
+    def get_id(x):
+        val = safe_text(x.get(key))
+        if val:
+            return val
+        return str(hash(str(x)))
+
+    items = [x for x in pool if get_id(x) not in used_ids]
+    if not items:
+        used_ids.clear()
+        items = pool[:]
+    item = random.choice(items)
+    used_ids.add(get_id(item))
+    return item
+
+# =========================
 # LOAD CSV
 # =========================
 @st.cache_data
 def load_dialogues():
-    df = pd.read_csv("dialogue_library.csv")
+    df = pd.read_csv("dialogue_library.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 @st.cache_data
 def load_scenes():
-    df = pd.read_csv("scene_library.csv")
+    df = pd.read_csv("scene_library.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = pd.read_csv("disclaimer_prompt2.csv")
+    df = pd.read_csv("disclaimer_prompt2.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
 
     if "disclaimer" in cols:
         arr = df["disclaimer"].dropna().astype(str).tolist()
-        return [x.strip() for x in arr if x.strip()]
+        return [safe_text(x) for x in arr if safe_text(x)]
 
     preferred = ["text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line"]
     for c in preferred:
         if c in cols:
             arr = df[c].dropna().astype(str).tolist()
-            return [x.strip() for x in arr if x.strip()]
+            return [safe_text(x) for x in arr if safe_text(x)]
 
     if len(cols) >= 2 and cols[0].lower() in ["id", "stt", "no"]:
         arr = df[cols[1]].dropna().astype(str).tolist()
-        return [x.strip() for x in arr if x.strip()]
+        return [safe_text(x) for x in arr if safe_text(x)]
 
     last = cols[-1]
     arr = df[last].dropna().astype(str).tolist()
-    return [x.strip() for x in arr if x.strip()]
+    return [safe_text(x) for x in arr if safe_text(x)]
 
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
@@ -113,36 +157,8 @@ if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
 
 # =========================
-# UTILS
+# FILTERS / TIMELINE
 # =========================
-def safe_text(v) -> str:
-    if v is None:
-        return ""
-    try:
-        if pd.isna(v):
-            return ""
-    except Exception:
-        pass
-    s = str(v).strip()
-    if s.lower() == "nan":
-        return ""
-    return s
-
-def pick_unique(pool, used_ids: set, key: str):
-    def get_id(x):
-        val = safe_text(x.get(key))
-        if val:
-            return val
-        return str(hash(str(x)))
-
-    items = [x for x in pool if get_id(x) not in used_ids]
-    if not items:
-        used_ids.clear()
-        items = pool[:]
-    item = random.choice(items)
-    used_ids.add(get_id(item))
-    return item
-
 def filter_scenes_by_shoe_type(shoe_type: str):
     f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
     return f if f else scenes
@@ -155,12 +171,6 @@ def filter_dialogues(shoe_type: str, tone: str):
     return shoe_f if shoe_f else tone_f
 
 def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
-    """
-    Total duration ALWAYS 10.0 seconds.
-    2 scenes: 0-5, 5-10
-    3 scenes: 0-3.3, 3.3-6.7, 6.7-10
-    4 scenes: 0-2.5, 2.5-5, 5-7.5, 7.5-10
-    """
     n = max(2, min(4, int(n)))
     if n == 2:
         cuts = [0.0, 5.0, 10.0]
@@ -179,7 +189,7 @@ def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
     return out
 
 # =========================
-# FILENAME HEURISTIC (fallback only)
+# FILENAME HEURISTIC
 # =========================
 def detect_shoe_from_filename(name: str) -> str:
     n = (name or "").lower()
@@ -201,13 +211,9 @@ def detect_shoe_from_filename(name: str) -> str:
     return "sneaker"
 
 # =========================
-# GEMINI VISION DETECT (AI priority) - FIXED NotFound
+# GEMINI VISION DETECT - FIX 404
 # =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[str], str]:
-    """
-    Returns (shoe_type or None, raw_text).
-    FIXED: auto-pick available Gemini model to avoid 404 NotFound.
-    """
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
@@ -229,12 +235,7 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         if not available:
             return None, "NO_GENERATE_MODELS_AVAILABLE"
 
-        preferred = [
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro",
-            "models/gemini-pro-vision",
-        ]
-
+        preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
         picked = None
         for p in preferred:
             if p in available:
@@ -252,7 +253,6 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
             "Rules:\n"
             "- Return exactly one word.\n"
             "- No explanations.\n"
-            "- No extra characters.\n"
             "- Dress shoe, loafer, oxford, derby -> leather.\n"
             "- Sports shoe or sneaker -> sneaker or runner.\n"
         )
@@ -273,92 +273,92 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
 
 # =========================
-# DIALOGUE BANK (fallback)
+# DIALOGUE FALLBACK BANK
 # =========================
 TONE_BANK = {
     "Tự tin": {
         "open": [
-            "Hom nay minh chon kieu gon gang de ra ngoai tu tin hon.",
-            "Minh thich cam giac buoc di nhin gon va co nhip.",
-            "Minh uu tien tong the sach, de phoi va nhin sang dang."
+            "Hôm nay mình chọn kiểu gọn gàng để ra ngoài tự tin hơn.",
+            "Mình thích cảm giác bước đi nhìn gọn và có nhịp.",
+            "Mình ưu tiên tổng thể sạch, dễ phối và nhìn sáng dáng."
         ],
         "mid": [
-            "Di mot luc thay nhip buoc deu, cam giac kha on dinh.",
-            "Minh thay form len chan nhin gon, de di suot ngay.",
-            "Cam giac di chuyen nhe nhang, khong bi roi mat."
+            "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định.",
+            "Mình thấy form lên chân nhìn gọn, dễ đi suốt ngày.",
+            "Cảm giác di chuyển nhẹ nhàng, không bị rối mắt."
         ],
         "close": [
-            "Tong the don gian nhung co diem tinh te rieng.",
-            "Minh thich kieu toi gian de tao phong cach.",
-            "Voi minh, gon gang la du dep roi."
+            "Tổng thể đơn giản nhưng có điểm tinh tế riêng.",
+            "Mình thích kiểu tối giản để tạo phong cách.",
+            "Với mình, gọn gàng là đủ đẹp rồi."
         ],
     },
     "Truyền cảm": {
         "open": [
-            "Co nhung doi mang vao la thay tam trang diu lai lien.",
-            "Minh thich cam giac nhe nhang, cham rai ma van chin chu.",
-            "Nhin ky moi thay cai hay nam o su tinh gian."
+            "Có những đôi mang vào là thấy tâm trạng dịu lại liền.",
+            "Mình thích cảm giác nhẹ nhàng, chậm rãi mà vẫn chỉn chu.",
+            "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản."
         ],
         "mid": [
-            "Di cham thoi nhung cam giac rat thu tha.",
-            "Minh thich nhip buoc em, tao cam giac de chiu.",
-            "Cang nhin cang thay tong the hai hoa."
+            "Đi chậm thôi nhưng cảm giác rất thư thả.",
+            "Mình thích nhịp bước êm, tạo cảm giác dễ chịu.",
+            "Càng nhìn càng thấy tổng thể hài hòa."
         ],
         "close": [
-            "Moi buoc nhu giu lai mot chut binh yen.",
-            "Vua du tinh te de nhin lau khong chan.",
-            "Doi khi chi can vay la dep."
+            "Mỗi bước như giữ lại một chút bình yên.",
+            "Vừa đủ tinh tế để nhìn lâu không chán.",
+            "Đôi khi chỉ cần vậy là đẹp."
         ],
     },
     "Mạnh mẽ": {
         "open": [
-            "Hom nay minh muon nhip buoc dut khoat hon mot chut.",
-            "Minh thich cam giac chac chan khi di chuyen nhanh.",
-            "Ngay ban ron thi minh can su gon va on dinh."
+            "Hôm nay mình muốn nhịp bước dứt khoát hơn một chút.",
+            "Mình thích cảm giác chắc chân khi di chuyển nhanh.",
+            "Ngày bận rộn thì mình cần sự gọn và ổn định."
         ],
         "mid": [
-            "Di nhanh van thay kiem soat tot, khong bi chong chenh.",
-            "Nhip buoc chac, cam giac bam chan on.",
-            "Gon gang giup minh tu tin hon khi di chuyen."
+            "Đi nhanh vẫn thấy kiểm soát tốt, không bị chông chênh.",
+            "Nhịp bước chắc, cảm giác bám chân ổn.",
+            "Gọn gàng giúp mình tự tin hơn khi di chuyển."
         ],
         "close": [
-            "Tong the nhin khoe ma van sach.",
-            "Gon, chac, de phoi, dung gu minh.",
-            "Chi can on dinh la minh yen tam."
+            "Tổng thể nhìn khỏe mà vẫn sạch.",
+            "Gọn, chắc, dễ phối, đúng gu mình.",
+            "Chỉ cần ổn định là mình yên tâm."
         ],
     },
     "Lãng mạn": {
         "open": [
-            "Chieu nay ra ngoai chut, tu nhien mood nhe hon.",
-            "Minh thich kieu di cham, nhin moi thu mem lai.",
-            "Nhung ngay nhu vay, minh uu tien cam giac thu tha."
+            "Chiều nay ra ngoài chút, tự nhiên mood nhẹ hơn.",
+            "Mình thích kiểu đi chậm, nhìn mọi thứ mềm lại.",
+            "Những ngày như vậy, mình ưu tiên cảm giác thư thả."
         ],
         "mid": [
-            "Nhip buoc nhe, nhin tong the rat hai hoa.",
-            "Cam giac vua van khien minh muon di them mot doan nua.",
-            "Don gian thoi nhung len hinh lai thay diu."
+            "Nhịp bước nhẹ, nhìn tổng thể rất hài hòa.",
+            "Cảm giác vừa vặn khiến mình muốn đi thêm một đoạn nữa.",
+            "Đơn giản thôi nhưng lên hình lại thấy rất dịu."
         ],
         "close": [
-            "Cang toi gian cang de tao cam xuc rieng.",
-            "Minh thich su tinh te nam o nhung thu gian don.",
-            "Mot chut nhe nhang la du."
+            "Càng tối giản càng dễ tạo cảm xúc riêng.",
+            "Mình thích sự tinh tế nằm ở những thứ giản đơn.",
+            "Một chút nhẹ nhàng là đủ."
         ],
     },
     "Tự nhiên": {
         "open": [
-            "Minh uu tien thoai mai, kieu mang la muon di tiep.",
-            "Hom nay minh chon phong cach tu nhien, khong cau ky.",
-            "Di ra ngoai ma van thay nhe nhang la minh thich."
+            "Mình ưu tiên thoải mái, kiểu mang là muốn đi tiếp.",
+            "Hôm nay mình chọn phong cách tự nhiên, không cầu kỳ.",
+            "Đi ra ngoài mà vẫn thấy nhẹ nhàng là mình thích."
         ],
         "mid": [
-            "Cam giac di chuyen mem, de chiu.",
-            "Nhin tong the rat tu nhien, khong bi gong.",
-            "Minh thay hop nhung ngay muon tha long."
+            "Cảm giác di chuyển mềm, dễ chịu.",
+            "Nhìn tổng thể rất tự nhiên, không bị gồng.",
+            "Mình thấy hợp những ngày muốn thả lỏng."
         ],
         "close": [
-            "Gon gang vay thoi nhung lai de dung hang ngay.",
-            "Minh thich kieu don gian ma nhin sach.",
-            "Nhe nhang la du dep roi."
+            "Gọn gàng vậy thôi nhưng lại dễ dùng hằng ngày.",
+            "Mình thích kiểu đơn giản mà nhìn sạch.",
+            "Nhẹ nhàng là đủ đẹp rồi."
         ],
     }
 }
@@ -369,12 +369,6 @@ def split_sentences(text: str) -> List[str]:
         return []
     parts = [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
     return parts
-
-def dot(x: str) -> str:
-    x = (x or "").strip()
-    if not x:
-        return ""
-    return x if x.endswith((".", "!", "?")) else x + "."
 
 def get_dialogue_3_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
     candidate = ""
@@ -410,8 +404,7 @@ def get_dialogue_3_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
     if c.strip().lower() in {a.strip().lower(), b.strip().lower()}:
         c = random.choice(bank["close"])
 
-    a, b, c = dot(a), dot(b), dot(c)
-    return f"{a}\n{b}\n{c}"
+    return f"{dot(a)}\n{dot(b)}\n{dot(c)}"
 
 def get_dialogue_2_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
     candidate = ""
@@ -439,17 +432,12 @@ def get_dialogue_2_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
     if b.strip().lower() == a.strip().lower():
         b = random.choice(bank["mid"])
 
-    a, b = dot(a), dot(b)
-    return f"{a}\n{b}"
+    return f"{dot(a)}\n{dot(b)}"
 
 # =========================
 # GEMINI FREE - GENERATE DIALOGUE LINES
 # =========================
 def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines: int) -> Optional[List[str]]:
-    """
-    Gemini FREE text generation for Vietnamese voice lines.
-    Returns list of lines (length == n_lines) or None.
-    """
     api_key = (api_key or "").strip()
     if not api_key:
         return None
@@ -462,7 +450,6 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
     try:
         genai.configure(api_key=api_key)
 
-        # pick a lightweight text model
         preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro"]
         models = genai.list_models()
         available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
@@ -479,11 +466,7 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
 
         model = genai.GenerativeModel(picked)
 
-        if n_lines == 3:
-            want = '{"lines":["...","...","..."]}'
-        else:
-            want = '{"lines":["...","..."]}'
-
+        want = '{"lines":["...","..."]}' if n_lines == 2 else '{"lines":["...","...","..."]}'
         prompt = (
             "Return JSON only: " + want + "\n"
             "Language: Vietnamese.\n"
@@ -513,11 +496,10 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
 
         out: List[str] = []
         for x in lines:
-            s = str(x).strip()
+            s = safe_text(x)
             if not s:
                 continue
-            s = dot(s)
-            out.append(s)
+            out.append(dot(s))
 
         if len(out) != n_lines:
             return None
@@ -636,8 +618,7 @@ with left:
     tone = st.selectbox("Voice tone", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
     scene_count = st.slider("Number of scenes (within total 10s)", 2, 4, 3)
     count = st.slider("Number of prompts", 1, 10, 5)
-    use_ai_dialogue = st.checkbox("Prefer AI dialogue (Gemini FREE)", value=True)
-    compact_mode = st.checkbox("Sora compact output (recommended)", value=True)
+    use_ai_dialogue = st.checkbox("Prefer AI dialogue (Gemini)", value=True)
 
 with right:
     st.subheader("Notes")
@@ -690,54 +671,34 @@ if uploaded:
     if st.button(btn_label, use_container_width=True):
         arr = []
         for _ in range(count):
-            # pick dialogue row (fallback only)
             d_pool = filter_dialogues(shoe_type, tone)
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
-            # pick multi-scenes inside 10s
             scene_list = pick_n_unique_scenes(shoe_type, scene_count)
             timeline = split_10s_timeline(scene_count)
 
             if mode.startswith("PROMPT 1"):
-                # 3 lines
-                ai_lines = None
-                if use_ai_dialogue:
-                    ai_lines = ai_generate_dialogue_lines(
-                        st.session_state.gemini_api_key, shoe_type, tone, n_lines=3
-                    )
+                ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=3) if use_ai_dialogue else None
                 if ai_lines:
                     voice_lines = "\n".join(ai_lines)
                 else:
                     voice_lines = get_dialogue_3_sentences_from_csv_or_bank(d, tone)
 
-                if compact_mode:
-                    p = build_prompt_compact("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
-                else:
-                    # still use compact to avoid markdown issues
-                    p = build_prompt_compact("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
+                p = build_prompt_compact("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             else:
-                # 2 lines + 1 disclaimer
-                ai_lines = None
-                if use_ai_dialogue:
-                    ai_lines = ai_generate_dialogue_lines(
-                        st.session_state.gemini_api_key, shoe_type, tone, n_lines=2
-                    )
+                ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=2) if use_ai_dialogue else None
                 if ai_lines:
                     voice_2 = "\n".join(ai_lines)
                 else:
                     voice_2 = get_dialogue_2_sentences_from_csv_or_bank(d, tone)
 
-                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Noi dung mang tinh chia se trai nghiem."
+                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung mang tính chia sẻ trải nghiệm."
                 disclaimer = dot(disclaimer)
 
                 voice_lines = f"{voice_2}\n{disclaimer}"
 
-                if compact_mode:
-                    p = build_prompt_compact("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
-                else:
-                    # still use compact to avoid markdown issues
-                    p = build_prompt_compact("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
+                p = build_prompt_compact("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             arr.append(p)
 
