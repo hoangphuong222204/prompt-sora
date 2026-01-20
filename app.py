@@ -4,6 +4,7 @@ import random
 import base64
 import re
 import json
+import unicodedata
 from pathlib import Path
 from typing import Optional, List, Tuple
 from PIL import Image
@@ -19,61 +20,32 @@ CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
-# Persistent key storage (local disk for Streamlit app runtime)
-KEY_FILE = Path("data/keys.json")
-KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-
-# =========================
-# KEY STORE
-# =========================
-def load_saved_key() -> str:
-    if KEY_FILE.exists():
-        try:
-            data = json.loads(KEY_FILE.read_text(encoding="utf-8"))
-            return (data.get("gemini_api_key") or "").strip()
-        except Exception:
-            return ""
-    return ""
-
-
-def save_key_to_disk(key: str):
-    try:
-        KEY_FILE.write_text(
-            json.dumps({"gemini_api_key": (key or "").strip()}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    except Exception as e:
-        st.error(f"Cannot save key: {e}")
-
-
 # =========================
 # COPY BUTTON
 # =========================
 def copy_button(text: str, key: str):
     b64 = base64.b64encode(text.encode("utf-8")).decode("utf-8")
     html = f"""
-    <button id="{key}" style="
-        padding:8px 14px;border-radius:10px;border:1px solid #ccc;
-        cursor:pointer;background:#fff;font-weight:700;">COPY</button>
+    <button id="{key}" style="padding:8px 14px;border-radius:10px;border:1px solid #ccc;cursor:pointer;background:#fff;font-weight:700;">
+      COPY
+    </button>
     <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
     <script>
     const btn = document.getElementById("{key}");
     const s = document.getElementById("{key}_s");
     btn.onclick = async () => {{
-        try {{
-            await navigator.clipboard.writeText(atob("{b64}"));
-            s.innerText = "Copied";
-            setTimeout(()=>s.innerText="",1500);
-        }} catch(e) {{
-            s.innerText = "Copy blocked";
-            setTimeout(()=>s.innerText="",2500);
-        }}
+      try {{
+        await navigator.clipboard.writeText(atob("{b64}"));
+        s.innerText = "Copied";
+        setTimeout(()=>s.innerText="",1500);
+      }} catch(e) {{
+        s.innerText = "Copy blocked";
+        setTimeout(()=>s.innerText="",2500);
+      }}
     }}
     </script>
     """
     st.components.v1.html(html, height=42)
-
 
 # =========================
 # FILE CHECK
@@ -83,30 +55,10 @@ if missing:
     st.error("Missing files: " + ", ".join(missing) + " (must be in the same folder as app.py)")
     st.stop()
 
-
 # =========================
-# TEXT FIX (MOJIBAKE HARD)
+# TEXT SAFETY + ENCODING REPAIR
 # =========================
-def _repair_once(s: str) -> str:
-    if not s:
-        return s
-    if "Ã" in s or "Â" in s or "Ä" in s or "ðŸ" in s:
-        try:
-            s2 = s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
-            if s2 and s2.count("Ã") < s.count("Ã"):
-                return s2
-        except Exception:
-            pass
-        try:
-            s2 = s.encode("cp1252", errors="ignore").decode("utf-8", errors="ignore")
-            if s2 and s2.count("Ã") < s.count("Ã"):
-                return s2
-        except Exception:
-            pass
-    return s
-
-
-def safe_text(v) -> str:
+def _to_str(v) -> str:
     if v is None:
         return ""
     try:
@@ -114,13 +66,47 @@ def safe_text(v) -> str:
             return ""
     except Exception:
         pass
-    s = str(v).strip()
-    if s.lower() == "nan":
+    s = str(v)
+    if s.lower().strip() == "nan":
         return ""
-    s1 = _repair_once(s)
-    s2 = _repair_once(s1)
-    return (s2 or "").strip()
+    return s
 
+def _repair_mojibake_once(s: str) -> str:
+    if not s:
+        return s
+    # Common mojibake markers
+    if ("Ã" in s) or ("Â" in s) or ("Ä" in s) or ("ðŸ" in s):
+        # utf8 bytes decoded as latin1/cp1252
+        for enc in ("latin1", "cp1252"):
+            try:
+                s2 = s.encode(enc, errors="ignore").decode("utf-8", errors="ignore")
+                if s2 and (s2.count("Ã") < s.count("Ã")):
+                    return s2
+            except Exception:
+                pass
+    return s
+
+def safe_text(v) -> str:
+    s = _to_str(v).strip()
+    if not s:
+        return ""
+    # normalize
+    try:
+        s = unicodedata.normalize("NFC", s)
+    except Exception:
+        pass
+    # repair mojibake multiple passes
+    s1 = _repair_mojibake_once(s)
+    s2 = _repair_mojibake_once(s1)
+    s3 = _repair_mojibake_once(s2)
+    s = (s3 or "").strip()
+    try:
+        s = unicodedata.normalize("NFC", s)
+    except Exception:
+        pass
+    # collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 def dot(x: str) -> str:
     x = safe_text(x)
@@ -128,9 +114,8 @@ def dot(x: str) -> str:
         return ""
     return x if x.endswith((".", "!", "?")) else x + "."
 
-
 # =========================
-# CSV LOADER (AUTO ENCODING TRY)
+# CSV READ BEST EFFORT
 # =========================
 def read_csv_best_effort(path: str) -> pd.DataFrame:
     encodings = ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]
@@ -141,29 +126,29 @@ def read_csv_best_effort(path: str) -> pd.DataFrame:
         except Exception as e:
             last_err = e
             continue
+    # final attempt
     try:
         return pd.read_csv(path)
     except Exception as e:
         raise RuntimeError(f"Cannot read {path}. Last error: {last_err} / {e}")
 
-
 @st.cache_data
 def load_dialogues():
-    df = pd.read_csv("dialogue_library.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("dialogue_library.csv")
     cols = [c.strip() for c in df.columns.tolist()]
-    return df.to_dict(orient="records"), cols
-
+    rows = df.to_dict(orient="records")
+    return rows, cols
 
 @st.cache_data
 def load_scenes():
-    df = pd.read_csv("scene_library.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("scene_library.csv")
     cols = [c.strip() for c in df.columns.tolist()]
-    return df.to_dict(orient="records"), cols
-
+    rows = df.to_dict(orient="records")
+    return rows, cols
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = pd.read_csv("disclaimer_prompt2.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("disclaimer_prompt2.csv")
     cols = [c.strip() for c in df.columns.tolist()]
 
     def clean_list(arr):
@@ -177,7 +162,7 @@ def load_disclaimer_prompt2_flexible():
     if "disclaimer" in cols:
         return clean_list(df["disclaimer"].dropna().astype(str).tolist())
 
-    preferred = ["text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line"]
+    preferred = ["text", "mien_tru", "mien_tru_ngan", "note", "content", "noi_dung", "line"]
     for c in preferred:
         if c in cols:
             return clean_list(df[c].dropna().astype(str).tolist())
@@ -188,14 +173,12 @@ def load_disclaimer_prompt2_flexible():
     last = cols[-1]
     return clean_list(df[last].dropna().astype(str).tolist())
 
-
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
 disclaimers_p2 = load_disclaimer_prompt2_flexible()
 
-
 # =========================
-# SESSION
+# SESSION - ANTI DUP
 # =========================
 if "used_dialogue_ids" not in st.session_state:
     st.session_state.used_dialogue_ids = set()
@@ -204,8 +187,46 @@ if "used_scene_ids" not in st.session_state:
 if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
-    st.session_state.gemini_api_key = load_saved_key()
+    st.session_state.gemini_api_key = ""
 
+# =========================
+# LOCALSTORAGE KEY (PERSIST IN BROWSER)
+# =========================
+def localstorage_get_key(ls_key: str = "GEMINI_API_KEY") -> str:
+    html = f"""
+    <script>
+    const v = window.localStorage.getItem("{ls_key}") || "";
+    const msg = {{type: "LS_GET", key: "{ls_key}", value: v}};
+    window.parent.postMessage(msg, "*");
+    </script>
+    """
+    st.components.v1.html(html, height=0)
+
+def localstorage_set_key(value: str, ls_key: str = "GEMINI_API_KEY"):
+    v = value.replace("\\", "\\\\").replace('"', '\\"')
+    html = f"""
+    <script>
+    window.localStorage.setItem("{ls_key}", "{v}");
+    const msg = {{type: "LS_SET", key: "{ls_key}", ok: true}};
+    window.parent.postMessage(msg, "*");
+    </script>
+    """
+    st.components.v1.html(html, height=0)
+
+def localstorage_clear_key(ls_key: str = "GEMINI_API_KEY"):
+    html = f"""
+    <script>
+    window.localStorage.removeItem("{ls_key}");
+    const msg = {{type: "LS_CLEAR", key: "{ls_key}", ok: true}};
+    window.parent.postMessage(msg, "*");
+    </script>
+    """
+    st.components.v1.html(html, height=0)
+
+# Try load from localStorage once
+if "ls_loaded" not in st.session_state:
+    st.session_state.ls_loaded = True
+    localstorage_get_key("GEMINI_API_KEY")
 
 # =========================
 # UTILS
@@ -225,11 +246,9 @@ def pick_unique(pool, used_ids: set, key: str):
     used_ids.add(get_id(item))
     return item
 
-
 def filter_scenes_by_shoe_type(shoe_type: str):
     f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
     return f if f else scenes
-
 
 def filter_dialogues(shoe_type: str, tone: str):
     tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
@@ -237,7 +256,6 @@ def filter_dialogues(shoe_type: str, tone: str):
         tone_f = dialogues
     shoe_f = [d for d in tone_f if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
     return shoe_f if shoe_f else tone_f
-
 
 def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
     n = max(2, min(4, int(n)))
@@ -249,7 +267,6 @@ def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
         cuts = [0.0, 2.5, 5.0, 7.5, 10.0]
     return [(cuts[i], cuts[i + 1]) for i in range(n)]
 
-
 def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
     pool = filter_scenes_by_shoe_type(shoe_type)
     out = []
@@ -258,7 +275,6 @@ def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
         out.append(s)
     return out
 
-
 # =========================
 # FILENAME HEURISTIC
 # =========================
@@ -266,30 +282,13 @@ def detect_shoe_from_filename(name: str) -> str:
     n = (name or "").lower()
     rules = [
         ("boots", ["boot", "chelsea", "combat", "martin"]),
-        ("sandals", ["sandal", "sandals", "dep", "dép", "slipper", "slides"]),
-        (
-            "leather",
-            [
-                "loafer",
-                "loafers",
-                "moc",
-                "moccasin",
-                "horsebit",
-                "oxford",
-                "derby",
-                "tassel",
-                "brogue",
-                "giaytay",
-                "giày tây",
-                "giay_da",
-                "giayda",
-                "dressshoe",
-            ],
-        ),
-        ("runner", ["runner", "running", "jog", "marathon", "gym", "train", "thethao", "thể thao", "sport"]),
+        ("sandals", ["sandal", "sandals", "dep", "dep_", "slipper", "slides"]),
+        ("leather", ["loafer", "loafers", "moc", "moccasin", "horsebit", "oxford", "derby", "tassel", "brogue",
+                     "giaytay", "giay_tay", "giay_da", "giayda", "dressshoe"]),
+        ("runner", ["runner", "running", "jog", "marathon", "gym", "train", "thethao", "sport"]),
         ("casual", ["casual", "daily", "everyday", "basic"]),
         ("luxury", ["lux", "premium", "quietlux", "quiet_lux", "highend", "boutique"]),
-        ("sneaker", ["sneaker", "sneakers", "kicks", "street"]),
+        ("sneaker", ["sneaker", "sneakers", "kicks", "street"])
     ]
     for shoe_type, keys in rules:
         if any(k in n for k in keys):
@@ -298,43 +297,59 @@ def detect_shoe_from_filename(name: str) -> str:
         return "leather"
     return "sneaker"
 
+# =========================
+# GEMINI HELPERS
+# =========================
+def _pick_gemini_model(genai) -> Optional[str]:
+    try:
+        models = genai.list_models()
+        available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
+        if not available:
+            return None
+        preferred = [
+            "models/gemini-2.5-flash",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro",
+            "models/gemini-pro-vision",
+        ]
+        for p in preferred:
+            if p in available:
+                return p
+        return available[0]
+    except Exception:
+        return None
 
-# =========================
-# GEMINI VISION DETECT (FAIL SAFE)
-# =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[str], str]:
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
+
     try:
         import google.generativeai as genai
     except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}: {e}"
+        return None, f"IMPORT_FAIL: {type(e).__name__}"
 
     try:
         genai.configure(api_key=api_key)
-        models = genai.list_models()
-        available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
-        if not available:
-            return None, "NO_GENERATE_MODELS_AVAILABLE"
-
-        preferred = ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
-        picked = next((p for p in preferred if p in available), available[0])
+        picked = _pick_gemini_model(genai)
+        if not picked:
+            return None, "NO_MODELS"
 
         model = genai.GenerativeModel(picked)
         prompt = (
             "You are a shoe classification system.\n"
             "Return ONLY ONE label from this list:\n"
-            f"{', '.join(SHOE_TYPES)}\n"
-            "Rules:\n"
+            + ", ".join(SHOE_TYPES) +
+            "\nRules:\n"
             "- Return exactly one word.\n"
             "- No explanations.\n"
             "- Dress shoe, loafer, oxford, derby -> leather.\n"
             "- Sports shoe or sneaker -> sneaker or runner.\n"
         )
+
         resp = model.generate_content([prompt, img])
         text = (getattr(resp, "text", "") or "").strip().lower()
-        raw = f"{picked} -> {text}" if text else f"{picked} -> EMPTY_TEXT"
+        raw = f"{picked} | {text}" if text else f"{picked} | EMPTY_TEXT"
 
         norm = re.sub(r"[^a-z_]", "", text)
         if norm in SHOE_TYPES:
@@ -343,179 +358,11 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
             if t in norm:
                 return t, raw
         return None, raw
+
     except Exception as e:
+        # quota, 404, etc.
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
 
-
-# =========================
-# DIALOGUE BANK (FALLBACK)
-# =========================
-TONE_BANK = {
-    "Tự tin": {
-        "open": [
-            "Hôm nay mình chọn kiểu gọn gàng để ra ngoài tự tin hơn.",
-            "Mình thích cảm giác bước đi nhìn gọn và có nhịp.",
-            "Mình ưu tiên tổng thể sạch, dễ phối và nhìn sáng dáng.",
-        ],
-        "mid": [
-            "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định.",
-            "Mình thấy form lên chân nhìn gọn, dễ đi suốt ngày.",
-            "Cảm giác di chuyển nhẹ nhàng, không bị rối mắt.",
-        ],
-        "close": [
-            "Tổng thể đơn giản nhưng có điểm tinh tế riêng.",
-            "Mình thích kiểu tối giản để tạo phong cách.",
-            "Với mình, gọn gàng là đủ đẹp rồi.",
-        ],
-    },
-    "Truyền cảm": {
-        "open": [
-            "Có những đôi mang vào là thấy tâm trạng dịu lại liền.",
-            "Mình thích cảm giác nhẹ nhàng, chậm rãi mà vẫn chỉn chu.",
-            "Nhìn kỹ mới thấy cái hay nằm ở sự tinh giản.",
-        ],
-        "mid": [
-            "Đi chậm thôi nhưng cảm giác rất thư thả.",
-            "Mình thích nhịp bước êm, tạo cảm giác dễ chịu.",
-            "Càng nhìn càng thấy tổng thể hài hòa.",
-        ],
-        "close": [
-            "Mỗi bước như giữ lại một chút bình yên.",
-            "Vừa đủ tinh tế để nhìn lâu không chán.",
-            "Đôi khi chỉ cần vậy là đẹp.",
-        ],
-    },
-    "Mạnh mẽ": {
-        "open": [
-            "Hôm nay mình muốn nhịp bước dứt khoát hơn một chút.",
-            "Mình thích cảm giác chắc chân khi di chuyển nhanh.",
-            "Ngày bận rộn thì mình cần sự gọn và ổn định.",
-        ],
-        "mid": [
-            "Đi nhanh vẫn thấy kiểm soát tốt, không bị chông chênh.",
-            "Nhịp bước chắc, cảm giác bám chân ổn.",
-            "Gọn gàng giúp mình tự tin hơn khi di chuyển.",
-        ],
-        "close": [
-            "Tổng thể nhìn khỏe mà vẫn sạch.",
-            "Gọn, chắc, dễ phối, đúng gu mình.",
-            "Chỉ cần ổn định là mình yên tâm.",
-        ],
-    },
-    "Lãng mạn": {
-        "open": [
-            "Chiều nay ra ngoài chút, tự nhiên mood nhẹ hơn.",
-            "Mình thích kiểu đi chậm, nhìn mọi thứ mềm lại.",
-            "Những ngày như vậy, mình ưu tiên cảm giác thư thả.",
-        ],
-        "mid": [
-            "Nhịp bước nhẹ, nhìn tổng thể rất hài hòa.",
-            "Cảm giác vừa vặn khiến mình muốn đi thêm một đoạn nữa.",
-            "Đơn giản thôi nhưng lên hình lại thấy rất dịu.",
-        ],
-        "close": [
-            "Càng tối giản càng dễ tạo cảm xúc riêng.",
-            "Mình thích sự tinh tế nằm ở những thứ giản đơn.",
-            "Một chút nhẹ nhàng là đủ.",
-        ],
-    },
-    "Tự nhiên": {
-        "open": [
-            "Mình ưu tiên thoải mái, kiểu mang là muốn đi tiếp.",
-            "Hôm nay mình chọn phong cách tự nhiên, không cầu kỳ.",
-            "Đi ra ngoài mà vẫn thấy nhẹ nhàng là mình thích.",
-        ],
-        "mid": [
-            "Cảm giác di chuyển mềm, dễ chịu.",
-            "Nhìn tổng thể rất tự nhiên, không bị gồng.",
-            "Mình thấy hợp những ngày muốn thả lỏng.",
-        ],
-        "close": [
-            "Gọn gàng vậy thôi nhưng lại dễ dùng hằng ngày.",
-            "Mình thích kiểu đơn giản mà nhìn sạch.",
-            "Nhẹ nhàng là đủ đẹp rồi.",
-        ],
-    },
-}
-
-
-def split_sentences(text: str) -> List[str]:
-    t = safe_text(text)
-    if not t:
-        return []
-    parts = [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
-    return parts
-
-
-def get_dialogue_3_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
-    candidate = ""
-    for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
-        if col in row and safe_text(row.get(col)):
-            candidate = safe_text(row.get(col))
-            break
-
-    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
-
-    if candidate:
-        parts = split_sentences(candidate)
-        if len(parts) >= 3:
-            a, b, c = parts[0], parts[1], parts[2]
-        elif len(parts) == 2:
-            a, b = parts[0], parts[1]
-            c = random.choice(bank["close"])
-        elif len(parts) == 1:
-            a = parts[0]
-            b = random.choice(bank["mid"])
-            c = random.choice(bank["close"])
-        else:
-            a = random.choice(bank["open"])
-            b = random.choice(bank["mid"])
-            c = random.choice(bank["close"])
-    else:
-        a = random.choice(bank["open"])
-        b = random.choice(bank["mid"])
-        c = random.choice(bank["close"])
-
-    if b.strip().lower() == a.strip().lower():
-        b = random.choice(bank["mid"])
-    if c.strip().lower() in {a.strip().lower(), b.strip().lower()}:
-        c = random.choice(bank["close"])
-
-    return f"{dot(a)}\n{dot(b)}\n{dot(c)}"
-
-
-def get_dialogue_2_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
-    candidate = ""
-    for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
-        if col in row and safe_text(row.get(col)):
-            candidate = safe_text(row.get(col))
-            break
-
-    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
-
-    if candidate:
-        parts = split_sentences(candidate)
-        if len(parts) >= 2:
-            a, b = parts[0], parts[1]
-        elif len(parts) == 1:
-            a = parts[0]
-            b = random.choice(bank["mid"])
-        else:
-            a = random.choice(bank["open"])
-            b = random.choice(bank["mid"])
-    else:
-        a = random.choice(bank["open"])
-        b = random.choice(bank["mid"])
-
-    if b.strip().lower() == a.strip().lower():
-        b = random.choice(bank["mid"])
-
-    return f"{dot(a)}\n{dot(b)}"
-
-
-# =========================
-# AI DIALOGUE (OPTIONAL)
-# =========================
 def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines: int) -> Optional[List[str]]:
     api_key = (api_key or "").strip()
     if not api_key:
@@ -527,31 +374,29 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
 
     try:
         genai.configure(api_key=api_key)
-        models = genai.list_models()
-        available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
-        if not available:
+        picked = _pick_gemini_model(genai)
+        if not picked:
             return None
 
-        preferred = ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "models/gemini-1.5-pro"]
-        picked = next((p for p in preferred if p in available), available[0])
         model = genai.GenerativeModel(picked)
 
         want = '{"lines":["...","..."]}' if n_lines == 2 else '{"lines":["...","...","..."]}'
         prompt = (
             "Return JSON only: " + want + "\n"
             "Language: Vietnamese.\n"
-            "Style: natural spoken, short experience review.\n"
+            "Style: natural spoken, short experience sharing.\n"
             f"Tone: {tone}. Shoe type: {shoe_type}.\n"
             "Rules:\n"
             "- No price.\n"
             "- No discount.\n"
             "- No guarantee.\n"
-            "- No hard call to action.\n"
+            "- No strong call to action.\n"
             "- No brand names.\n"
-            "- No material names.\n"
+            "- No sensitive material words.\n"
             "- Each line 6 to 12 words.\n"
             "- Lines must not repeat each other.\n"
         )
+
         resp = model.generate_content(prompt)
         text = (getattr(resp, "text", "") or "").strip()
 
@@ -575,11 +420,169 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
     except Exception:
         return None
 
+# =========================
+# DIALOGUE BANK FALLBACK
+# =========================
+TONE_BANK = {
+    "Tự tin": {
+        "open": [
+            "Hom nay minh chon kieu gon gang de tu tin hon.",
+            "Minh thich cam giac buoc di gon va co nhip.",
+            "Minh uu tien tong the sach, de phoi, nhin sang dang."
+        ],
+        "mid": [
+            "Di mot luc thay nhip buoc deu, cam giac on dinh.",
+            "Form len chan nhin gon, de di ca ngay.",
+            "Cam giac di chuyen nhe, nhin rat gon gang."
+        ],
+        "close": [
+            "Tong the toi gian nhung nhin tinh te.",
+            "Minh thich kieu toi gian de tao phong cach.",
+            "Voi minh, gon gang la du dep roi."
+        ],
+    },
+    "Truyền cảm": {
+        "open": [
+            "Co nhung doi mang vao la thay de chiu hon.",
+            "Minh thich cam giac nhe nhang, cham rai ma chi chu.",
+            "Nhin ky moi thay cai hay nam o su tinh gian."
+        ],
+        "mid": [
+            "Di cham thoi nhung cam giac rat thu thai.",
+            "Minh thich nhip buoc em, tao cam giac de chiu.",
+            "Cang nhin cang thay tong the hai hoa."
+        ],
+        "close": [
+            "Moi buoc nhu giu lai chut binh yen.",
+            "Vua du tinh te de nhin lau khong chan.",
+            "Doi khi chi can vay la dep."
+        ],
+    },
+    "Mạnh mẽ": {
+        "open": [
+            "Hom nay minh muon nhip buoc dut khoat hon.",
+            "Minh thich cam giac chac chan khi di chuyen nhanh.",
+            "Ngay ban ron thi minh can su gon va on dinh."
+        ],
+        "mid": [
+            "Di nhanh van thay kiem soat tot, khong chong chenh.",
+            "Nhip buoc chac, cam giac bam chan on.",
+            "Gon gang giup minh tu tin hon khi di chuyen."
+        ],
+        "close": [
+            "Tong the nhin khoe ma van sach.",
+            "Gon, chac, de phoi, dung gu minh.",
+            "Chi can on dinh la minh yen tam."
+        ],
+    },
+    "Lãng mạn": {
+        "open": [
+            "Chieu nay ra ngoai chut, tu nhien mood nhe hon.",
+            "Minh thich kieu di cham, nhin moi thu mem lai.",
+            "Nhung ngay vay, minh uu tien cam giac thu thai."
+        ],
+        "mid": [
+            "Nhip buoc nhe, nhin tong the rat hai hoa.",
+            "Cam giac vua van khien minh muon di them chut nua.",
+            "Don gian thoi nhung len hinh lai thay diu."
+        ],
+        "close": [
+            "Cang toi gian cang de tao cam xuc rieng.",
+            "Minh thich su tinh te nam o nhung thu gian don.",
+            "Mot chut nhe nhang la du."
+        ],
+    },
+    "Tự nhiên": {
+        "open": [
+            "Minh uu tien thoai mai, mang la muon di tiep.",
+            "Hom nay minh chon phong cach tu nhien, khong cau ky.",
+            "Di ra ngoai ma van thay nhe la minh thich."
+        ],
+        "mid": [
+            "Cam giac di chuyen mem, de chiu.",
+            "Nhin tong the rat tu nhien, khong bi gong.",
+            "Minh thay hop nhung ngay muon tha long."
+        ],
+        "close": [
+            "Gon gang vay thoi nhung de dung hang ngay.",
+            "Minh thich kieu don gian ma nhin sach.",
+            "Nhe nhang la du dep roi."
+        ],
+    }
+}
+
+def split_sentences(text: str) -> List[str]:
+    t = safe_text(text)
+    if not t:
+        return []
+    parts = [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
+    return parts
+
+def get_dialogue_from_csv(row: dict) -> str:
+    for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
+        if col in row and safe_text(row.get(col)):
+            return safe_text(row.get(col))
+    return ""
+
+def get_dialogue_3_sentences(row: dict, tone: str) -> str:
+    candidate = get_dialogue_from_csv(row)
+    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
+
+    if candidate:
+        parts = split_sentences(candidate)
+        if len(parts) >= 3:
+            a, b, c = parts[0], parts[1], parts[2]
+        elif len(parts) == 2:
+            a, b = parts[0], parts[1]
+            c = random.choice(bank["close"])
+        elif len(parts) == 1:
+            a = parts[0]
+            b = random.choice(bank["mid"])
+            c = random.choice(bank["close"])
+        else:
+            a = random.choice(bank["open"])
+            b = random.choice(bank["mid"])
+            c = random.choice(bank["close"])
+    else:
+        a = random.choice(bank["open"])
+        b = random.choice(bank["mid"])
+        c = random.choice(bank["close"])
+
+    # anti duplicate simple
+    if b.strip().lower() == a.strip().lower():
+        b = random.choice(bank["mid"])
+    if c.strip().lower() in {a.strip().lower(), b.strip().lower()}:
+        c = random.choice(bank["close"])
+
+    return f"{dot(a)}\n{dot(b)}\n{dot(c)}"
+
+def get_dialogue_2_sentences(row: dict, tone: str) -> str:
+    candidate = get_dialogue_from_csv(row)
+    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
+
+    if candidate:
+        parts = split_sentences(candidate)
+        if len(parts) >= 2:
+            a, b = parts[0], parts[1]
+        elif len(parts) == 1:
+            a = parts[0]
+            b = random.choice(bank["mid"])
+        else:
+            a = random.choice(bank["open"])
+            b = random.choice(bank["mid"])
+    else:
+        a = random.choice(bank["open"])
+        b = random.choice(bank["mid"])
+
+    if b.strip().lower() == a.strip().lower():
+        b = random.choice(bank["mid"])
+
+    return f"{dot(a)}\n{dot(b)}"
 
 # =========================
-# PROMPT BUILDER (NO MARKDOWN TABLES, NO EMOJI)
+# PROMPT BUILDERS (NO MARKDOWN TABLE, NO EMOJI, NO SPECIAL ARROWS)
 # =========================
-def build_scene_lines_compact(scene_list: List[dict], timeline: List[Tuple[float, float]]) -> str:
+def build_scene_lines(scene_list: List[dict], timeline: List[Tuple[float, float]]) -> str:
     out = []
     for sc, (a, b) in zip(scene_list, timeline):
         loc = safe_text(sc.get("location"))
@@ -588,33 +591,13 @@ def build_scene_lines_compact(scene_list: List[dict], timeline: List[Tuple[float
         wea = safe_text(sc.get("weather"))
         moo = safe_text(sc.get("mood"))
         line = f"{a:.1f}-{b:.1f}s: location={loc}; lighting={lig}; motion={mot}; weather={wea}; mood={moo}"
-        line = re.sub(r"\s{2,}", " ", line).strip()
         out.append(line)
     return "\n".join(out)
 
-
-def build_prompt_compact(
-    mode: str,  # "p1" or "p2"
-    shoe_type: str,
-    shoe_name: str,
-    scene_list: List[dict],
-    timeline: List[Tuple[float, float]],
-    voice_lines: str,
-) -> str:
-    scenes_text = build_scene_lines_compact(scene_list, timeline)
-
-    if mode == "p1":
-        title = "PROMPT 1 (NO CAMEO)"
-        cast_rule = f"No people on screen. No cameo. Voice ID: {CAMEO_VOICE_ID}."
-    else:
-        title = "PROMPT 2 (WITH CAMEO)"
-        cast_rule = (
-            f"Cameo appears naturally like a phone video review. Cameo and Voice ID: {CAMEO_VOICE_ID}. "
-            "No hard call to action. No price. No discount. No guarantees."
-        )
-
+def build_prompt_p1(shoe_type: str, shoe_name: str, scene_list: List[dict], timeline: List[Tuple[float, float]], voice_lines: str) -> str:
+    scenes_text = build_scene_lines(scene_list, timeline)
     return f"""
-SORA VIDEO PROMPT - {title} - TOTAL 10s
+SORA VIDEO PROMPT - PROMPT 1 (NO CAMEO) - TOTAL 10s
 
 Video setup:
 - Vertical 9:16
@@ -627,7 +610,9 @@ Video setup:
 - No blur, haze, or glow
 
 Cast rule:
-{cast_rule}
+- No people on screen
+- No cameo
+- Voice ID: {CAMEO_VOICE_ID}
 
 Shoe reference lock:
 - Use only the uploaded shoe image as reference
@@ -644,20 +629,62 @@ Scenes (inside 10s):
 
 Audio timeline:
 - 0.0-1.2s: no voice, light ambient only
-- 1.2-6.9s: voice on
+- 1.2-6.9s: voice on (3 short lines)
 - 6.9-10.0s: voice off, gentle fade out 9.2-10.0s
 
 Voiceover (1.2-6.9s):
 {voice_lines}
 """.strip()
 
+def build_prompt_p2(shoe_type: str, shoe_name: str, scene_list: List[dict], timeline: List[Tuple[float, float]], voice_lines: str) -> str:
+    scenes_text = build_scene_lines(scene_list, timeline)
+    return f"""
+SORA VIDEO PROMPT - PROMPT 2 (WITH CAMEO) - TOTAL 10s
+
+Video setup:
+- Vertical 9:16
+- Total duration exactly 10 seconds
+- Ultra sharp 4K output
+- Realistic motion (not a still image)
+- No on-screen text
+- No logo
+- No watermark
+- No blur, haze, or glow
+
+Cast rule:
+- Cameo appears naturally like a phone video review
+- Cameo and Voice ID: {CAMEO_VOICE_ID}
+- No strong call to action, no price, no discount, no guarantees
+
+Shoe reference lock:
+- Use only the uploaded shoe image as reference
+- Keep 100 percent shoe identity: toe shape, panels, stitching, sole, proportions
+- No redesign, no deformation, no guessing, no color shift
+- Lace rule: if reference shoe has laces then keep laces in all frames; if no laces then absolutely no laces
+
+Product:
+- shoe_name: {shoe_name}
+- shoe_type: {shoe_type}
+
+Scenes (inside 10s):
+{scenes_text}
+
+Audio timeline:
+- 0.0-1.2s: no voice, light ambient only
+- 1.2-6.9s: voice on (2 short lines + 1 disclaimer line)
+- 6.9-10.0s: voice off, gentle fade out 9.2-10.0s
+
+Voiceover (1.2-6.9s):
+{voice_lines}
+""".strip()
 
 # =========================
-# SIDEBAR: GEMINI KEY (PERSIST)
+# SIDEBAR - GEMINI KEY (PERSIST)
 # =========================
 with st.sidebar:
     st.markdown("Gemini API Key")
-    st.caption("Save once, the app will remember. If quota is exceeded, fallback is used.")
+    st.caption("Saved in your browser (localStorage). No need to re-enter every time.")
+
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
 
     c1, c2 = st.columns(2)
@@ -665,19 +692,20 @@ with st.sidebar:
         if st.button("Save key", use_container_width=True):
             k = (api_key_input or "").strip()
             st.session_state.gemini_api_key = k
-            save_key_to_disk(k)
-            st.success("Saved to disk.")
+            localstorage_set_key(k, "GEMINI_API_KEY")
+            st.success("Saved.")
     with c2:
         if st.button("Clear key", use_container_width=True):
             st.session_state.gemini_api_key = ""
-            save_key_to_disk("")
+            localstorage_clear_key("GEMINI_API_KEY")
             st.info("Cleared.")
 
     if st.session_state.gemini_api_key:
         st.success("Key is set.")
     else:
-        st.warning("No key. AI features are disabled.")
+        st.warning("No key. AI features will fallback.")
 
+st.divider()
 
 # =========================
 # UI
@@ -696,7 +724,7 @@ with right:
     st.subheader("Notes")
     st.write("Total duration is always 10 seconds. Scenes are split inside 10 seconds.")
     st.write("Prompt 1: 3 voice lines. No disclaimer line.")
-    st.write("Prompt 2: 2 voice lines plus 1 short disclaimer line (total 3 lines).")
+    st.write("Prompt 2: 2 voice lines plus 1 disclaimer line (total 3 lines).")
     st.caption("Dialogues columns: " + ", ".join([safe_text(x) for x in dialogue_cols]))
     st.caption("Scenes columns: " + ", ".join([safe_text(x) for x in scene_cols]))
 
@@ -707,7 +735,12 @@ if uploaded:
     img = Image.open(uploaded).convert("RGB")
     st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
 
-    detect_mode = st.selectbox("shoe_type mode", ["AI (image) - preferred", "Auto (filename) - fallback", "Manual pick"], index=0)
+    detect_mode = st.selectbox(
+        "shoe_type mode",
+        ["AI (image) - preferred", "Auto (filename) - fallback", "Manual pick"],
+        index=0
+    )
+
     detected_filename = detect_shoe_from_filename(uploaded.name)
 
     detected_ai = None
@@ -745,33 +778,34 @@ if uploaded:
             timeline = split_10s_timeline(scene_count)
 
             if mode.startswith("PROMPT 1"):
-                ai_lines = ai_generate_dialogue_lines(
-                    st.session_state.gemini_api_key, shoe_type, tone, n_lines=3
-                ) if use_ai_dialogue else None
-
+                ai_lines = None
+                if use_ai_dialogue:
+                    ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=3)
                 if ai_lines:
-                    voice_lines = "\n".join([safe_text(x) for x in ai_lines])
+                    voice_lines = "\n".join([dot(x) for x in ai_lines])
                 else:
-                    voice_lines = get_dialogue_3_sentences_from_csv_or_bank(d, tone)
+                    voice_lines = get_dialogue_3_sentences(d, tone)
 
-                p = build_prompt_compact("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
+                p = build_prompt_p1(shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             else:
-                ai_lines = ai_generate_dialogue_lines(
-                    st.session_state.gemini_api_key, shoe_type, tone, n_lines=2
-                ) if use_ai_dialogue else None
+                ai_lines = None
+                if use_ai_dialogue:
+                    ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=2)
 
                 if ai_lines:
-                    voice_2 = "\n".join([safe_text(x) for x in ai_lines])
+                    voice_2 = "\n".join([dot(x) for x in ai_lines])
                 else:
-                    voice_2 = get_dialogue_2_sentences_from_csv_or_bank(d, tone)
+                    voice_2 = get_dialogue_2_sentences(d, tone)
 
-                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung mang tính chia sẻ trải nghiệm."
+                disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Noi dung mang tinh chia se trai nghiem."
                 disclaimer = dot(disclaimer)
 
                 voice_lines = f"{voice_2}\n{disclaimer}"
-                p = build_prompt_compact("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
+                p = build_prompt_p2(shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
+            # Final safety normalize (avoid mojibake leaking)
+            p = safe_text(p)
             arr.append(p)
 
         st.session_state.generated_prompts = arr
@@ -789,6 +823,8 @@ else:
     st.warning("Upload a shoe image to begin.")
 
 st.divider()
+
+# Reset anti-duplicate button
 if st.button("Reset anti-duplicate"):
     st.session_state.used_dialogue_ids.clear()
     st.session_state.used_scene_ids.clear()
