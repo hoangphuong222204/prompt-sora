@@ -23,6 +23,7 @@ REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_promp
 # COPY BUTTON (1 CLICK)
 # =========================
 def copy_button(text: str, key: str):
+    # Clipboard should be UTF-8 safe
     b64 = base64.b64encode(text.encode("utf-8")).decode("utf-8")
     html = f"""
     <button id="{key}" style="
@@ -55,8 +56,29 @@ if missing:
     st.stop()
 
 # =========================
-# UTILS
+# TEXT FIX (MOJIBAKE) - HARD MODE
 # =========================
+def _repair_once(s: str) -> str:
+    # Repair common mojibake where UTF-8 bytes were decoded as latin1/cp1252
+    if not s:
+        return s
+    if "Ã" in s or "Â" in s or "Ä" in s or "ðŸ" in s:
+        # try latin1 -> utf8
+        try:
+            s2 = s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            if s2 and s2.count("Ã") < s.count("Ã"):
+                return s2
+        except Exception:
+            pass
+        # try cp1252 -> utf8
+        try:
+            s2 = s.encode("cp1252", errors="ignore").decode("utf-8", errors="ignore")
+            if s2 and s2.count("Ã") < s.count("Ã"):
+                return s2
+        except Exception:
+            pass
+    return s
+
 def safe_text(v) -> str:
     if v is None:
         return ""
@@ -70,16 +92,10 @@ def safe_text(v) -> str:
     if s.lower() == "nan":
         return ""
 
-    # FIX Vietnamese mojibake (UTF-8 read as latin1)
-    if "Ã" in s or "Â" in s or "Ä" in s:
-        try:
-            s2 = s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
-            if s2 and s2.count("Ã") < s.count("Ã"):
-                s = s2
-        except Exception:
-            pass
-
-    return s
+    # HARD repair: do twice to handle double-encoding
+    s1 = _repair_once(s)
+    s2 = _repair_once(s1)
+    return s2.strip()
 
 def dot(x: str) -> str:
     x = safe_text(x)
@@ -87,58 +103,63 @@ def dot(x: str) -> str:
         return ""
     return x if x.endswith((".", "!", "?")) else x + "."
 
-def pick_unique(pool, used_ids: set, key: str):
-    def get_id(x):
-        val = safe_text(x.get(key))
-        if val:
-            return val
-        return str(hash(str(x)))
-
-    items = [x for x in pool if get_id(x) not in used_ids]
-    if not items:
-        used_ids.clear()
-        items = pool[:]
-    item = random.choice(items)
-    used_ids.add(get_id(item))
-    return item
-
 # =========================
-# LOAD CSV
+# CSV LOADER (AUTO-ENCODING TRY)
 # =========================
+def read_csv_best_effort(path: str) -> pd.DataFrame:
+    # Try common encodings used in VN + Excel exports
+    encodings = ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]
+    last_err = None
+    for enc in encodings:
+        try:
+            return pd.read_csv(path, encoding=enc)
+        except Exception as e:
+            last_err = e
+            continue
+    # final fallback (pandas default)
+    try:
+        return pd.read_csv(path)
+    except Exception as e:
+        raise RuntimeError(f"Cannot read {path}. Last error: {last_err} / {e}")
+
 @st.cache_data
 def load_dialogues():
-    df = pd.read_csv("dialogue_library.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("dialogue_library.csv")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 @st.cache_data
 def load_scenes():
-    df = pd.read_csv("scene_library.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("scene_library.csv")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = pd.read_csv("disclaimer_prompt2.csv", encoding="utf-8-sig")
+    df = read_csv_best_effort("disclaimer_prompt2.csv")
     cols = [c.strip() for c in df.columns.tolist()]
 
+    def clean_list(arr):
+        out = []
+        for x in arr:
+            s = safe_text(x)
+            if s:
+                out.append(s)
+        return out
+
     if "disclaimer" in cols:
-        arr = df["disclaimer"].dropna().astype(str).tolist()
-        return [safe_text(x) for x in arr if safe_text(x)]
+        return clean_list(df["disclaimer"].dropna().astype(str).tolist())
 
     preferred = ["text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line"]
     for c in preferred:
         if c in cols:
-            arr = df[c].dropna().astype(str).tolist()
-            return [safe_text(x) for x in arr if safe_text(x)]
+            return clean_list(df[c].dropna().astype(str).tolist())
 
     if len(cols) >= 2 and cols[0].lower() in ["id", "stt", "no"]:
-        arr = df[cols[1]].dropna().astype(str).tolist()
-        return [safe_text(x) for x in arr if safe_text(x)]
+        return clean_list(df[cols[1]].dropna().astype(str).tolist())
 
     last = cols[-1]
-    arr = df[last].dropna().astype(str).tolist()
-    return [safe_text(x) for x in arr if safe_text(x)]
+    return clean_list(df[last].dropna().astype(str).tolist())
 
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
@@ -155,6 +176,24 @@ if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
+
+# =========================
+# PICK UNIQUE
+# =========================
+def pick_unique(pool, used_ids: set, key: str):
+    def get_id(x):
+        val = safe_text(x.get(key))
+        if val:
+            return val
+        return str(hash(str(x)))
+
+    items = [x for x in pool if get_id(x) not in used_ids]
+    if not items:
+        used_ids.clear()
+        items = pool[:]
+    item = random.choice(items)
+    used_ids.add(get_id(item))
+    return item
 
 # =========================
 # FILTERS / TIMELINE
@@ -227,22 +266,12 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         genai.configure(api_key=api_key)
 
         models = genai.list_models()
-        available = []
-        for m in models:
-            if "generateContent" in getattr(m, "supported_generation_methods", []):
-                available.append(m.name)
-
+        available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
         if not available:
             return None, "NO_GENERATE_MODELS_AVAILABLE"
 
         preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
-        picked = None
-        for p in preferred:
-            if p in available:
-                picked = p
-                break
-        if not picked:
-            picked = available[0]
+        picked = next((p for p in preferred if p in available), available[0])
 
         model = genai.GenerativeModel(picked)
 
@@ -435,7 +464,7 @@ def get_dialogue_2_sentences_from_csv_or_bank(row: dict, tone: str) -> str:
     return f"{dot(a)}\n{dot(b)}"
 
 # =========================
-# GEMINI FREE - GENERATE DIALOGUE LINES
+# GEMINI - GENERATE DIALOGUE LINES (optional)
 # =========================
 def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines: int) -> Optional[List[str]]:
     api_key = (api_key or "").strip()
@@ -449,21 +478,13 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
 
     try:
         genai.configure(api_key=api_key)
-
-        preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro"]
         models = genai.list_models()
         available = [m.name for m in models if "generateContent" in getattr(m, "supported_generation_methods", [])]
         if not available:
             return None
 
-        picked = None
-        for p in preferred:
-            if p in available:
-                picked = p
-                break
-        if not picked:
-            picked = available[0]
-
+        preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro"]
+        picked = next((p for p in preferred if p in available), available[0])
         model = genai.GenerativeModel(picked)
 
         want = '{"lines":["...","..."]}' if n_lines == 2 else '{"lines":["...","...","..."]}'
@@ -494,17 +515,15 @@ def ai_generate_dialogue_lines(api_key: str, shoe_type: str, tone: str, n_lines:
         if not isinstance(lines, list):
             return None
 
-        out: List[str] = []
+        out = []
         for x in lines:
-            s = safe_text(x)
-            if not s:
-                continue
-            out.append(dot(s))
+            s = dot(x)
+            if s:
+                out.append(s)
 
         if len(out) != n_lines:
             return None
         return out
-
     except Exception:
         return None
 
@@ -625,22 +644,17 @@ with right:
     st.write("Total duration is always 10 seconds. Scenes are split inside 10 seconds.")
     st.write("Prompt 1: 3 voice lines. No disclaimer line.")
     st.write("Prompt 2: 2 voice lines plus 1 short disclaimer line (total 3 lines).")
-    st.caption("Dialogues columns: " + ", ".join(dialogue_cols))
-    st.caption("Scenes columns: " + ", ".join(scene_cols))
+    st.caption("Dialogues columns: " + ", ".join([safe_text(x) for x in dialogue_cols]))
+    st.caption("Scenes columns: " + ", ".join([safe_text(x) for x in scene_cols]))
 
 st.divider()
 
 if uploaded:
-    shoe_name = Path(uploaded.name).stem.replace("_", " ").strip()
+    shoe_name = safe_text(Path(uploaded.name).stem.replace("_", " ").strip())
     img = Image.open(uploaded).convert("RGB")
     st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
 
-    detect_mode = st.selectbox(
-        "shoe_type mode",
-        ["AI (image) - preferred", "Auto (filename) - fallback", "Manual pick"],
-        index=0
-    )
-
+    detect_mode = st.selectbox("shoe_type mode", ["AI (image) - preferred", "Auto (filename) - fallback", "Manual pick"], index=0)
     detected_filename = detect_shoe_from_filename(uploaded.name)
 
     detected_ai = None
@@ -652,18 +666,18 @@ if uploaded:
         if detected_ai:
             shoe_type = detected_ai
             st.success(f"AI shoe_type: {shoe_type}")
-            st.caption("AI raw: " + raw_ai)
+            st.caption("AI raw: " + safe_text(raw_ai))
         else:
             shoe_type = detected_filename
             st.warning("AI shoe_type failed. Using filename fallback.")
-            st.caption("AI raw: " + raw_ai)
-            st.info("Fallback shoe_type: " + detected_filename)
+            st.caption("AI raw: " + safe_text(raw_ai))
+            st.info("Fallback shoe_type: " + safe_text(detected_filename))
     elif detect_mode.startswith("Auto"):
         shoe_type = detected_filename
-        st.info("Filename shoe_type: " + shoe_type)
+        st.info("Filename shoe_type: " + safe_text(shoe_type))
     else:
         shoe_type = st.selectbox("Manual shoe_type", SHOE_TYPES, index=SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0)
-        st.success("Manual shoe_type: " + shoe_type)
+        st.success("Manual shoe_type: " + safe_text(shoe_type))
 
     st.caption("shoe_name: " + shoe_name)
 
@@ -680,7 +694,7 @@ if uploaded:
             if mode.startswith("PROMPT 1"):
                 ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=3) if use_ai_dialogue else None
                 if ai_lines:
-                    voice_lines = "\n".join(ai_lines)
+                    voice_lines = "\n".join([safe_text(x) for x in ai_lines])
                 else:
                     voice_lines = get_dialogue_3_sentences_from_csv_or_bank(d, tone)
 
@@ -689,7 +703,7 @@ if uploaded:
             else:
                 ai_lines = ai_generate_dialogue_lines(st.session_state.gemini_api_key, shoe_type, tone, n_lines=2) if use_ai_dialogue else None
                 if ai_lines:
-                    voice_2 = "\n".join(ai_lines)
+                    voice_2 = "\n".join([safe_text(x) for x in ai_lines])
                 else:
                     voice_2 = get_dialogue_2_sentences_from_csv_or_bank(d, tone)
 
@@ -697,7 +711,6 @@ if uploaded:
                 disclaimer = dot(disclaimer)
 
                 voice_lines = f"{voice_2}\n{disclaimer}"
-
                 p = build_prompt_compact("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             arr.append(p)
