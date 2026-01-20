@@ -217,6 +217,7 @@ def detect_shoe_from_filename(name: str) -> str:
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[str], str]:
     """
     Returns (shoe_type or None, raw_text).
+    FIXED: auto-pick available Gemini model to avoid 404 NotFound.
     """
     api_key = (api_key or "").strip()
     if not api_key:
@@ -225,28 +226,54 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
     try:
         import google.generativeai as genai
     except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}"
+        return None, f"IMPORT_FAIL: {type(e).__name__}: {e}"
 
     try:
         genai.configure(api_key=api_key)
-        # NOTE: Model availability can differ by API/runtime.
-        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        # 🔍 List available models first
+        models = genai.list_models()
+        available = []
+        for m in models:
+            if "generateContent" in getattr(m, "supported_generation_methods", []):
+                available.append(m.name)
+
+        if not available:
+            return None, "NO_GENERATE_MODELS_AVAILABLE"
+
+        # 🎯 Prefer vision-capable models first
+        preferred = [
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro",
+            "models/gemini-pro-vision",
+        ]
+
+        picked = None
+        for p in preferred:
+            if p in available:
+                picked = p
+                break
+
+        if not picked:
+            picked = available[0]  # fallback to any usable model
+
+        model = genai.GenerativeModel(picked)
 
         prompt = (
-            "Bạn là hệ thống phân loại giày từ hình ảnh.\n"
-            "Chỉ trả về 1 nhãn DUY NHẤT trong danh sách:\n"
+            "You are a shoe classification system.\n"
+            "Return ONLY ONE label from this list:\n"
             f"{', '.join(SHOE_TYPES)}\n\n"
-            "Quy tắc:\n"
-            "- Trả đúng 1 từ nhãn.\n"
-            "- Không giải thích.\n"
-            "- Không thêm ký tự.\n"
-            "- Nếu là giày tây/loafer/oxford/derby => leather.\n"
-            "- Nếu là sneaker/thể thao => sneaker hoặc runner.\n"
+            "Rules:\n"
+            "- Return exactly one word.\n"
+            "- No explanations.\n"
+            "- No extra characters.\n"
+            "- If the shoe is a dress shoe, loafer, oxford, derby => leather.\n"
+            "- If it is a sports shoe or sneaker => sneaker or runner.\n"
         )
 
         resp = model.generate_content([prompt, img])
         text = (getattr(resp, "text", "") or "").strip().lower()
-        raw = text if text else "EMPTY_TEXT"
+        raw = f"{picked} → {text}" if text else f"{picked} → EMPTY_TEXT"
 
         # normalize
         norm = re.sub(r"[^a-z_]", "", text)
@@ -258,8 +285,10 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
                 return t, raw
 
         return None, raw
+
     except Exception as e:
-        return None, f"CALL_FAIL: {type(e).__name__}"
+        return None, f"CALL_FAIL: {type(e).__name__}: {e}"
+
 
 # =========================
 # DIALOGUE BANK
