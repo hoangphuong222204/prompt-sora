@@ -149,21 +149,21 @@ def read_csv_best_effort(path: str) -> pd.DataFrame:
 
 @st.cache_data
 def load_dialogues():
-    df = read_csv_best_effort("dialogue_library.csv")
+    df = pd.read_csv("dialogue_library.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 
 @st.cache_data
 def load_scenes():
-    df = read_csv_best_effort("scene_library.csv")
+    df = pd.read_csv("scene_library.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
     return df.to_dict(orient="records"), cols
 
 
 @st.cache_data
 def load_disclaimer_prompt2_flexible():
-    df = read_csv_best_effort("disclaimer_prompt2.csv")
+    df = pd.read_csv("disclaimer_prompt2.csv", encoding="utf-8-sig")
     cols = [c.strip() for c in df.columns.tolist()]
 
     def clean_list(arr):
