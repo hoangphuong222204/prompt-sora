@@ -12,7 +12,7 @@ from PIL import Image
 # =========================
 st.set_page_config(page_title="Sora Prompt Studio Pro – Director Edition", layout="wide")
 st.title("🎬 Sora Prompt Studio Pro – Director Edition")
-st.caption("Prompt 1 & 2 • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE")
+st.caption("Prompt 1 & 2 • Tổng 10s • Multi-scene • Timeline thoại chuẩn • Không trùng • TikTok Shop SAFE")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 
@@ -164,6 +164,30 @@ def filter_dialogues(shoe_type: str, tone: str):
     shoe_f = [d for d in tone_f if safe_text(d.get("shoe_type")).lower() == shoe_type.lower()]
     return shoe_f if shoe_f else tone_f
 
+def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
+    """
+    Total video duration ALWAYS 10.0 seconds.
+    2 scenes: 0-5, 5-10
+    3 scenes: 0-3.3, 3.3-6.7, 6.7-10
+    4 scenes: 0-2.5, 2.5-5, 5-7.5, 7.5-10
+    """
+    n = max(2, min(4, int(n)))
+    if n == 2:
+        cuts = [0.0, 5.0, 10.0]
+    elif n == 3:
+        cuts = [0.0, 3.3, 6.7, 10.0]
+    else:
+        cuts = [0.0, 2.5, 5.0, 7.5, 10.0]
+    return [(cuts[i], cuts[i + 1]) for i in range(n)]
+
+def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
+    pool = filter_scenes_by_shoe_type(shoe_type)
+    out = []
+    for _ in range(n):
+        s = pick_unique(pool, st.session_state.used_scene_ids, "id")
+        out.append(s)
+    return out
+
 # =========================
 # FILENAME HEURISTIC (fallback only)
 # =========================
@@ -182,7 +206,7 @@ def detect_shoe_from_filename(name: str) -> str:
     for shoe_type, keys in rules:
         if any(k in n for k in keys):
             return shoe_type
-    # if filename is just digits => unknown => default "leather" is often safer for shop giày nam
+    # if filename is just digits => unknown => default "leather"
     if re.fullmatch(r"[\d_\-\.]+", n):
         return "leather"
     return "sneaker"
@@ -205,6 +229,7 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
 
     try:
         genai.configure(api_key=api_key)
+        # NOTE: Model availability can differ by API/runtime.
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = (
@@ -228,7 +253,6 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         if norm in SHOE_TYPES:
             return norm, raw
 
-        # extra cleanup: sometimes returns "leather." etc
         for t in SHOE_TYPES:
             if t in norm:
                 return t, raw
@@ -238,7 +262,7 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         return None, f"CALL_FAIL: {type(e).__name__}"
 
 # =========================
-# DIALOGUE: ALWAYS 3 SENTENCES
+# DIALOGUE BANK
 # =========================
 TONE_BANK = {
     "Tự tin": {
@@ -337,9 +361,8 @@ def split_sentences(text: str) -> List[str]:
 
 def get_dialogue_3_sentences(row: dict, tone: str) -> str:
     """
-    Always return exactly 3 sentences (each on new line).
+    Prompt 1: Always return exactly 3 sentences (each on new line).
     """
-    # try csv
     candidate = ""
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row and safe_text(row.get(col)):
@@ -350,7 +373,6 @@ def get_dialogue_3_sentences(row: dict, tone: str) -> str:
 
     if candidate:
         parts = split_sentences(candidate)
-
         if len(parts) >= 3:
             a, b, c = parts[0], parts[1], parts[2]
         elif len(parts) == 2:
@@ -369,96 +391,158 @@ def get_dialogue_3_sentences(row: dict, tone: str) -> str:
         b = random.choice(bank["mid"])
         c = random.choice(bank["close"])
 
-    # clean duplicates (simple)
+    # simple anti-dup
     if b.strip().lower() == a.strip().lower():
         b = random.choice(bank["mid"])
     if c.strip().lower() in {a.strip().lower(), b.strip().lower()}:
         c = random.choice(bank["close"])
 
-    # ensure dots
-    def dot(x): 
+    def dot(x):
         x = x.strip()
         return x if x.endswith((".", "!", "?")) else x + "."
 
     a, b, c = dot(a), dot(b), dot(c)
     return f"{a}\n{b}\n{c}"
 
+def get_dialogue_2_sentences(row: dict, tone: str) -> str:
+    """
+    Prompt 2: Always return exactly 2 experience sentences (each on new line).
+    The 3rd sentence will be the disclaimer.
+    """
+    candidate = ""
+    for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
+        if col in row and safe_text(row.get(col)):
+            candidate = safe_text(row.get(col))
+            break
+
+    bank = TONE_BANK.get(tone, TONE_BANK["Tự tin"])
+
+    if candidate:
+        parts = split_sentences(candidate)
+        if len(parts) >= 2:
+            a, b = parts[0], parts[1]
+        elif len(parts) == 1:
+            a = parts[0]
+            b = random.choice(bank["mid"])
+        else:
+            a = random.choice(bank["open"])
+            b = random.choice(bank["mid"])
+    else:
+        a = random.choice(bank["open"])
+        b = random.choice(bank["mid"])
+
+    if b.strip().lower() == a.strip().lower():
+        b = random.choice(bank["mid"])
+
+    def dot(x):
+        x = x.strip()
+        return x if x.endswith((".", "!", "?")) else x + "."
+
+    a, b = dot(a), dot(b)
+    return f"{a}\n{b}"
+
 # =========================
-# PROMPTS
+# SCRIPT / TABLE + PROMPTS
 # =========================
-def build_prompt_p1(shoe_type: str, scene: dict, dialogue_3: str, shoe_name: str) -> str:
-    # NOTE: Prompt 1: NO disclaimer (as requested)
+def build_story_overview(shoe_type: str, shoe_name: str) -> str:
+    return (
+        f"A short 10-second cinematic lifestyle showcase of the men’s shoe ({shoe_name}). "
+        f"The video uses clean lighting and subtle camera motion to highlight the shoe’s form and details. "
+        f"The tone stays natural and experience-focused (no hard selling). "
+        f"Shoe type: {shoe_type}."
+    )
+
+def build_scene_table_md(scene_list: List[dict], timeline: List[Tuple[float, float]]) -> str:
+    lines = []
+    lines.append("| # | Time (within 10s) | Detailed script (VI) | Motion prompt (EN) |")
+    lines.append("|---|---|---|---|")
+
+    for i, (sc, (a, b)) in enumerate(zip(scene_list, timeline), start=1):
+        vi = (
+            f"Bối cảnh: {safe_text(sc.get('location'))}. "
+            f"Ánh sáng: {safe_text(sc.get('lighting'))}. "
+            f"Chuyển động: {safe_text(sc.get('motion'))}. "
+            f"Thời tiết: {safe_text(sc.get('weather'))}. "
+            f"Mood: {safe_text(sc.get('mood'))}. "
+            "Ưu tiên cận chi tiết giày, chuyển động mượt, cảm giác video thật."
+        )
+
+        motion_en = (
+            f"Realistic cinematic shot of the shoe in {safe_text(sc.get('location'))}. "
+            f"{safe_text(sc.get('lighting'))} lighting. "
+            f"Camera movement: {safe_text(sc.get('motion'))}. "
+            f"Weather feel: {safe_text(sc.get('weather'))}. "
+            f"Mood: {safe_text(sc.get('mood'))}. "
+            "Keep the shoe perfectly sharp and unchanged; smooth natural motion; phone-video realism; "
+            "NO on-screen text, NO logos, NO watermark."
+        )
+
+        lines.append(f"| {i} | {a:.1f}s–{b:.1f}s | {vi} | {motion_en} |")
+
+    return "\n".join(lines)
+
+def build_prompt_unified(
+    mode: str,  # "p1" or "p2"
+    shoe_type: str,
+    shoe_name: str,
+    scene_list: List[dict],
+    timeline: List[Tuple[float, float]],
+    voice_lines: str,      # for p1: 3 lines, for p2: 3 lines (2 + disclaimer)
+) -> str:
+    story_overview = build_story_overview(shoe_type, shoe_name)
+    table_md = build_scene_table_md(scene_list, timeline)
+
+    if mode == "p1":
+        title = "PROMPT 1 (NO CAMEO)"
+        cast_rule = (
+            "CAST RULE\n"
+            "- NO people on screen, NO cameo.\n"
+            f"- VOICE ID: {CAMEO_VOICE_ID}\n"
+        )
+    else:
+        title = "PROMPT 2 (WITH CAMEO)"
+        cast_rule = (
+            "CAST RULE\n"
+            f"- CAMEO appears naturally like a phone video review (stable, not over-acting).\n"
+            f"- CAMEO & VOICE ID: {CAMEO_VOICE_ID}\n"
+            "- No hard call-to-action, no price, no discount, no guarantees.\n"
+        )
+
     return f"""
-SORA VIDEO PROMPT — PROMPT 1 (KHÔNG CAMEO) — TIMELINE LOCK 10s
-VOICE ID: {CAMEO_VOICE_ID}
+SORA VIDEO PROMPT — {title} — TOTAL 10s LOCK
 
 VIDEO SETUP
-- Video dọc 9:16 — 10s — Ultra Sharp 4K
-- Video thật, chuyển động mượt (không ảnh tĩnh)
-- KHÔNG người • KHÔNG cameo • KHÔNG xuất hiện nhân vật
-- NO text • NO logo • NO watermark
-- NO blur • NO haze • NO glow
+- Vertical 9:16, total duration EXACTLY 10 seconds
+- Ultra Sharp 4K output
+- Realistic video motion (NOT a still image)
+- NO on-screen text, NO logos, NO watermark
+- NO blur, NO haze, NO glow
+
+{cast_rule}
 
 SHOE REFERENCE — ABSOLUTE LOCK
 - Use ONLY the uploaded shoe image as reference.
-- KEEP 100% shoe identity (shape, panels, stitching, proportions).
-- NO redesign • NO deformation • NO guessing • NO color shift
-- If shoe has laces → keep laces in ALL frames. If NO laces → ABSOLUTELY NO laces.
+- Keep 100% shoe identity: toe shape, panels, stitching, sole, proportions.
+- NO redesign, NO deformation, NO guessing, NO color shift.
+- LACE RULE: if the reference shoe has laces → keep laces in ALL frames; if NO laces → ABSOLUTELY NO laces.
 
-PRODUCT
+PRODUCT META
 - shoe_name: {shoe_name}
 - shoe_type: {shoe_type}
 
-SCENE
-- {scene_line(scene)}
+STORY OVERVIEW (EN)
+{story_overview}
 
-AUDIO TIMELINE
-0.0–1.2s: Không thoại, ambient + nhạc nền rất nhẹ
-1.2–6.9s: VOICE ON (3 câu, đời thường, chia sẻ trải nghiệm)
-6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
+SCENE BREAKDOWN TABLE
+{table_md}
 
-[VOICEOVER {CAMEO_VOICE_ID} | 1.2–6.9s]
-{dialogue_3}
-""".strip()
+AUDIO TIMELINE (TOTAL 10s)
+- 0.0–1.2s: no voice, light ambient only
+- 1.2–6.9s: voice ON (natural short lines)
+- 6.9–10.0s: voice OFF completely, gentle fade-out 9.2–10.0s
 
-def build_prompt_p2(shoe_type: str, scene: dict, dialogue_3: str, disclaimer: str, shoe_name: str) -> str:
-    return f"""
-SORA VIDEO PROMPT — PROMPT 2 (CÓ CAMEO) — TIMELINE LOCK 10s
-CAMEO & VOICE ID: {CAMEO_VOICE_ID}
-
-VIDEO SETUP
-- Video dọc 9:16 — 10s — Ultra Sharp 4K
-- Video thật, chuyển động mượt (không ảnh tĩnh)
-- NO text • NO logo • NO watermark
-- NO blur • NO haze • NO glow
-
-CAMEO RULE
-- Cameo xuất hiện ổn định, nói tự nhiên như quay điện thoại.
-- Không CTA mạnh, không nói giá/khuyến mãi.
-
-SHOE REFERENCE — ABSOLUTE LOCK
-- Use ONLY the uploaded shoe image as reference.
-- KEEP 100% shoe identity (shape, panels, stitching, proportions).
-- NO redesign • NO deformation • NO guessing • NO color shift
-- If shoe has laces → keep laces in ALL frames. If NO laces → ABSOLUTELY NO laces.
-
-PRODUCT
-- shoe_name: {shoe_name}
-- shoe_type: {shoe_type}
-
-SCENE
-- {scene_line(scene)}
-
-AUDIO TIMELINE
-0.0–1.0s: Không thoại, ambient + nhạc nền rất nhẹ
-1.0–6.9s: VOICE ON (3 câu, đời thường, chia sẻ trải nghiệm)
-6.9–10.0s: VOICE OFF (im hẳn) + fade-out 9.2–10.0s
-
-[VOICEOVER {CAMEO_VOICE_ID} | 1.0–6.9s]
-{dialogue_3}
-
-SAFETY / MIỄN TRỪ (PROMPT 2)
-- {disclaimer}
+VOICEOVER (1.2–6.9s) — {CAMEO_VOICE_ID}
+{voice_lines}
 """.strip()
 
 # =========================
@@ -493,15 +577,17 @@ with left:
     uploaded = st.file_uploader("📤 Tải ảnh giày", type=["jpg", "png", "jpeg"])
     mode = st.radio("Chọn loại prompt", ["PROMPT 1 – Không cameo", "PROMPT 2 – Có cameo"], index=0)
     tone = st.selectbox("Chọn tone thoại", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
+    scene_count = st.slider("Số phân cảnh (trong tổng 10s)", 2, 4, 3)
     count = st.slider("Số lượng prompt", 1, 10, 5)
 
 with right:
     st.subheader("📌 Hướng dẫn nhanh")
-    st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Bấm SINH • 5) Bấm số 1..N để xem & COPY")
+    st.write("1) Upload ảnh • 2) Chọn Prompt 1/2 • 3) Chọn tone • 4) Chọn số phân cảnh • 5) Bấm SINH • 6) COPY")
     st.caption(f"Dialogues columns: {dialogue_cols}")
     st.caption(f"Scenes columns: {scene_cols}")
-    st.info("✅ Prompt 1: KHÔNG có miễn trừ (đã bỏ theo yêu cầu).")
-    st.info("✅ Prompt 2: lấy miễn trừ từ disclaimer_prompt2.csv.")
+    st.info("✅ Tổng video: 10s cố định. Multi-scene chia nhỏ trong 10s.")
+    st.info("✅ Prompt 1: 3 câu thoại (không miễn trừ).")
+    st.info("✅ Prompt 2: 2 câu thoại + 1 câu miễn trừ (tổng 3 câu).")
 
 st.divider()
 
@@ -511,7 +597,6 @@ if uploaded:
 
     st.image(img, caption=f"Uploaded: {uploaded.name}", use_container_width=True)
 
-    # Detect mode (default: AI)
     detect_mode = st.selectbox(
         "Chọn chế độ shoe_type",
         ["AI (ảnh) – ưu tiên", "Auto (tên file) – fallback", "Chọn tay"],
@@ -525,7 +610,6 @@ if uploaded:
     if detect_mode.startswith("AI"):
         detected_ai, raw_ai = gemini_detect_shoe_type(img, st.session_state.gemini_api_key)
 
-    # Decide final
     if detect_mode.startswith("AI"):
         if detected_ai:
             shoe_type = detected_ai
@@ -536,12 +620,15 @@ if uploaded:
             st.warning("🤖 AI detect FAILED → fallback theo tên file.")
             st.caption(f"AI raw: {raw_ai}")
             st.info(f"Fallback (tên file): **{detected_filename}**")
-            st.caption("Muốn AI chạy ổn: đảm bảo `runtime.txt = python-3.11` rồi Streamlit rebuild.")
     elif detect_mode.startswith("Auto"):
         shoe_type = detected_filename
         st.info(f"🧩 Auto theo tên file: **{shoe_type}**")
     else:
-        shoe_type = st.selectbox("Chọn shoe_type thủ công", SHOE_TYPES, index=SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0)
+        shoe_type = st.selectbox(
+            "Chọn shoe_type thủ công",
+            SHOE_TYPES,
+            index=SHOE_TYPES.index("leather") if "leather" in SHOE_TYPES else 0
+        )
         st.success(f"✅ Chọn tay: **{shoe_type}**")
 
     st.caption(f"shoe_name (tên file): {shoe_name}")
@@ -550,19 +637,28 @@ if uploaded:
     if st.button(btn_label, use_container_width=True):
         arr = []
         for _ in range(count):
-            s_pool = filter_scenes_by_shoe_type(shoe_type)
+            # pick dialogue
             d_pool = filter_dialogues(shoe_type, tone)
-
-            s = pick_unique(s_pool, st.session_state.used_scene_ids, "id")
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
-            dialogue_3 = get_dialogue_3_sentences(d, tone)
+            # pick multi-scenes inside 10s
+            scene_list = pick_n_unique_scenes(shoe_type, scene_count)
+            timeline = split_10s_timeline(scene_count)
 
             if mode.startswith("PROMPT 1"):
-                p = build_prompt_p1(shoe_type, s, dialogue_3, shoe_name)
+                # 3 sentences
+                voice_lines = get_dialogue_3_sentences(d, tone)
+                p = build_prompt_unified("p1", shoe_type, shoe_name, scene_list, timeline, voice_lines)
             else:
+                # 2 sentences + 1 disclaimer = 3 total lines
+                voice_2 = get_dialogue_2_sentences(d, tone)
                 disclaimer = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung mang tính chia sẻ trải nghiệm."
-                p = build_prompt_p2(shoe_type, s, dialogue_3, disclaimer, shoe_name)
+                # make disclaimer end with period
+                disclaimer = disclaimer.strip()
+                if disclaimer and not disclaimer.endswith((".", "!", "?")):
+                    disclaimer += "."
+                voice_lines = f"{voice_2}\n{disclaimer}"
+                p = build_prompt_unified("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             arr.append(p)
 
