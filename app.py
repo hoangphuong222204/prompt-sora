@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import random
 import re
@@ -11,9 +10,9 @@ from PIL import Image
 
 # ============================================================
 # Sora Prompt Studio Pro - Director Edition
-# Prompt 1 & 2 - TOTAL 10s - Multi-shot - Anti-duplicate
-# TikTok Shop SAFE - Copy/Paste Safe Unicode - No emojis
-# Persistent Gemini key in browser localStorage (optional)
+# FIX: remove JS clipboard copy (iframe clipboard can corrupt)
+# Use native copy in text_area + download .txt UTF-8
+# Persistent Gemini key in browser localStorage via query param bridge
 # ============================================================
 
 st.set_page_config(page_title="Sora Prompt Studio Pro - Director Edition", layout="wide")
@@ -25,20 +24,42 @@ SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "lux
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
 # =========================
-# TEXT NORMALIZE (COPY/PASTE SAFE)
+# TEXT NORMALIZE (HARD CLEAN)
 # =========================
 ZERO_WIDTH_PATTERN = r"[\u200b\u200c\u200d\uFEFF]"
+CONTROL_PATTERN = r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]"
+NBSP = "\u00A0"
+LSEP = "\u2028"
+PSEP = "\u2029"
 
 def normalize_text(s: str) -> str:
     if s is None:
         return ""
     s = str(s)
+
     try:
         s = unicodedata.normalize("NFC", s)
     except Exception:
         pass
+
+    # remove zero width chars / BOM
     s = re.sub(ZERO_WIDTH_PATTERN, "", s)
+
+    # normalize newlines
     s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    # replace special separators
+    s = s.replace(LSEP, "\n").replace(PSEP, "\n")
+
+    # replace NBSP
+    s = s.replace(NBSP, " ")
+
+    # remove control chars except \n and \t
+    # first protect \n and \t
+    s = s.replace("\n", "__NL__").replace("\t", "__TB__")
+    s = re.sub(CONTROL_PATTERN, "", s)
+    s = s.replace("__NL__", "\n").replace("__TB__", "\t")
+
     return s
 
 def compact_spaces(s: str) -> str:
@@ -68,16 +89,19 @@ def ensure_end_punct(s: str) -> str:
     return s + "."
 
 # =========================
-# localStorage KEY BRIDGE (PERSIST KEY IN BROWSER)
+# localStorage bridge for key (no server save)
+# Streamlit cannot read localStorage directly, so we:
+# - on load: inject key into URL param GEMINI_API_KEY
+# - python reads st.query_params
 # =========================
 def localstorage_key_bridge(key_name="GEMINI_API_KEY"):
+    import streamlit.components.v1 as components
     html = f"""
     <script>
     (function() {{
         const KEY = "{key_name}";
         const url = new URL(window.location.href);
 
-        // auto-load key from localStorage into URL param (once)
         if (!url.searchParams.get(KEY)) {{
             const saved = localStorage.getItem(KEY);
             if (saved) {{
@@ -112,10 +136,12 @@ def localstorage_key_bridge(key_name="GEMINI_API_KEY"):
     components.html(html, height=0)
 
 def js_save_key(value: str):
+    import streamlit.components.v1 as components
     payload = json.dumps(normalize_text(value))
     components.html(f"<script>window.__saveKey({payload});</script>", height=0)
 
 def js_clear_key():
+    import streamlit.components.v1 as components
     components.html("<script>window.__clearKey();</script>", height=0)
 
 # =========================
@@ -188,41 +214,10 @@ if "generated_prompts" not in st.session_state:
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
 
-# auto-load key from URL param (which localStorage bridge injects)
+# auto-load from query param (localStorage bridge writes it to URL)
 params = st.query_params
 if "GEMINI_API_KEY" in params and not st.session_state.gemini_api_key:
     st.session_state.gemini_api_key = normalize_text(params["GEMINI_API_KEY"]).strip()
-
-# =========================
-# COPY BUTTON (UNICODE SAFE)
-# =========================
-def copy_button_unicode_safe(text: str, key: str):
-    text = normalize_text(text)
-    payload = json.dumps(text)
-    html = f"""
-    <button id="{key}" style="
-        padding:8px 14px;border-radius:10px;border:1px solid #ccc;
-        cursor:pointer;background:#fff;font-weight:700;">COPY</button>
-    <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
-    <script>
-    (function() {{
-        const btn = document.getElementById("{key}");
-        const s = document.getElementById("{key}_s");
-        const text = {payload};
-        btn.onclick = async () => {{
-            try {{
-                await navigator.clipboard.writeText(text);
-                s.innerText = "Copied";
-                setTimeout(()=>s.innerText="",1500);
-            }} catch(e) {{
-                s.innerText = "Clipboard blocked";
-                setTimeout(()=>s.innerText="",2500);
-            }}
-        }};
-    }})();
-    </script>
-    """
-    components.html(html, height=42)
 
 # =========================
 # UTILS
@@ -233,6 +228,7 @@ def pick_unique(pool, used_ids: set, key: str):
         if val:
             return val
         return str(hash(str(x)))
+
     items = [x for x in pool if get_id(x) not in used_ids]
     if not items:
         used_ids.clear()
@@ -292,12 +288,13 @@ def detect_shoe_from_filename(name: str) -> str:
     return "sneaker"
 
 # =========================
-# GEMINI VISION DETECT (AUTO PICK MODEL TO AVOID 404)
+# GEMINI VISION DETECT (AUTO PICK MODEL)
 # =========================
 def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[str], str]:
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
+
     try:
         import google.generativeai as genai
     except Exception:
@@ -315,11 +312,7 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         if not available:
             return None, "NO_MODELS"
 
-        preferred = [
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro",
-            "models/gemini-pro-vision",
-        ]
+        preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
         picked = None
         for p in preferred:
             if p in available:
@@ -357,7 +350,7 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
 
 # =========================
-# DIALOGUE BANK (VI)
+# DIALOGUE BANK
 # =========================
 TONE_BANK = {
     "Tự tin": {
@@ -526,9 +519,8 @@ def short_disclaimer(raw: str) -> str:
     return normalize_text(s)
 
 # =========================
-# PROMPT BUILDER (LONGER, LIKE YOUR OLD PROMPT STYLE, ASCII SAFE)
-# Key idea: keep rich structure so Sora accepts it consistently.
-# No markdown tables, no emojis, no special box-drawing characters.
+# PROMPT BUILDER (STYLE CLOSE TO YOUR OLD PROMPT, ASCII SEPARATORS ONLY)
+# NOTE: no box drawing, no emojis
 # =========================
 def build_prompt_unified(
     mode: str,            # "p1" or "p2"
@@ -542,26 +534,24 @@ def build_prompt_unified(
     shoe_type = compact_spaces(shoe_type)
     voice_lines = normalize_text(voice_lines)
 
-    title = "PROMPT 1 - NO CAMEO" if mode == "p1" else "PROMPT 2 - WITH CAMEO"
-
     if mode == "p1":
-        cast_block = (
+        header = "SORA VIDEO PROMPT - PROMPT 1 (NO CAMEO)"
+        cast = (
             "CAST RULE\n"
             "No people on screen\n"
             "No cameo\n"
             f"Voice ID: {CAMEO_VOICE_ID}\n"
         )
     else:
-        cast_block = (
+        header = "SORA VIDEO PROMPT - PROMPT 2 (WITH CAMEO)"
+        cast = (
             "CAST RULE\n"
             "Cameo appears naturally like a phone video review\n"
-            "Cameo stays stable, not over-acting\n"
             f"Cameo and Voice ID: {CAMEO_VOICE_ID}\n"
-            "No hard call to action\n"
             "No price, no discount, no guarantees\n"
+            "No hard call to action\n"
         )
 
-    # Build shot list (no tables)
     shot_lines = []
     for sc, (a, b) in zip(scene_list, timeline):
         loc = compact_spaces(safe_text(sc.get("location")))
@@ -569,25 +559,22 @@ def build_prompt_unified(
         mot = compact_spaces(safe_text(sc.get("motion")))
         wea = compact_spaces(safe_text(sc.get("weather")))
         mood = compact_spaces(safe_text(sc.get("mood")))
-
-        # Keep English "instruction" while allowing Vietnamese values; copy-safe keeps characters correct.
         shot_lines.append(
-            f"{a:.1f}-{b:.1f}s: location {loc}. lighting {light}. camera motion {mot}. weather {wea}. mood {mood}."
+            f"{a:.1f}-{b:.1f}s: location {loc}. lighting {light}. motion {mot}. weather {wea}. mood {mood}."
         )
+    shots = "\n".join(shot_lines)
 
-    shots_block = "\n".join(shot_lines)
-
-    # Longer lock sections (closer to your old prompt) but ASCII only
     prompt = f"""
-SORA VIDEO PROMPT - {title}
+{CAMEO_VOICE_ID}
+
+{header}
 
 VIDEO SETUP
 Vertical 9:16
 Total duration exactly 10 seconds
-Ultra Sharp 4K output
-Realistic cinematic video, not a still image
-Use the exact uploaded shoe image as reference
-TikTok safe content
+Ultra sharp 4K output
+Realistic cinematic video (not a still image)
+Use the exact uploaded shoe image
 No on screen text
 No logo
 No watermark
@@ -595,62 +582,43 @@ No blur
 No haze
 No glow
 
-{cast_block}
+{cast}
 
-SHOE IDENTITY LOCK - CRITICAL
-Use ONLY the uploaded shoe image as reference
-Keep 100 percent shoe identity in ALL frames:
-toe shape, vamp, panels, stitching, sole, proportions
-No redesign
-No deformation
-No guessing
-No color shift
+SHOE REFERENCE LOCK (CRITICAL)
+Use only the uploaded shoe image as reference
+Lock 100 percent shoe identity: toe shape, vamp, panels, stitching, sole, proportions
+No redesign, no deformation, no guessing, no color shift
 Lace rule:
-If the reference shoe has laces then keep laces in ALL frames
-If the reference shoe has NO laces then absolutely NO laces
+If the shoe has laces then keep laces in all frames
+If the shoe has no laces then absolutely no laces
 
-IMAGE SHARPNESS LOCK
-The shoe must remain the sharpest object on screen at all times
-No motion blur on the shoe
-If camera movement risks blur, reduce movement and keep shoe sharp
-
-PRODUCT META
+PRODUCT
 shoe_name: {shoe_name}
 shoe_type: {shoe_type}
 
-TIMELINE - SHOE FIRST
-0.0-1.2s: show the shoe clearly, clean composition, no changes
-1.2-6.9s: voice on, natural experience sharing, no hard selling
-6.9-10.0s: voice off completely, light ambient only, gentle fade out
+TIMELINE
+0.0-1.2s: no voice, show shoe clearly
+1.2-6.9s: voice on
+6.9-10.0s: voice off, gentle fade out
 
-SHOTS INSIDE TOTAL 10s (MULTI SHOT)
-{shots_block}
+SHOTS (INSIDE 10s)
+{shots}
 
-AUDIO
-0.0-1.2s: no voice, light ambient
-1.2-6.9s: voice on (lines below)
-6.9-10.0s: voice off, music only, fade out near end
-
-VOICEOVER (1.2-6.9s) - {CAMEO_VOICE_ID}
+VOICEOVER (1.2-6.9s)
 {voice_lines}
 """
     return normalize_text(prompt).strip()
 
 # =========================
-# SIDEBAR: GEMINI KEY (PERSISTENT IN BROWSER)
+# SIDEBAR: GEMINI KEY (PERSIST IN BROWSER)
 # =========================
 with st.sidebar:
     st.markdown("### Gemini API Key (optional)")
-    st.caption("Save key in your browser localStorage so you do not retype it each time.")
+    st.caption("Saved in your browser localStorage (no server save).")
 
     localstorage_key_bridge("GEMINI_API_KEY")
 
-    api_key_input = st.text_input(
-        "GEMINI_API_KEY",
-        value=st.session_state.gemini_api_key,
-        type="password",
-        key="api_key_input"
-    )
+    api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -682,13 +650,12 @@ with left:
     count = st.slider("Prompts per click", 1, 10, 5)
 
 with right:
-    st.subheader("Info")
-    st.write("Upload image, choose Prompt 1 or 2, choose tone, choose shots, click Generate, then Copy.")
+    st.subheader("How to paste into Sora (no lỗi)")
+    st.write("Cách 1 (khuyên dùng): Click vào ô Prompt, nhấn Ctrl+A rồi Ctrl+C. Dán vào Sora.")
+    st.write("Cách 2: Bấm Download .txt, mở file rồi copy sang Sora.")
     st.caption("Dialogue columns: " + ", ".join([str(x) for x in dialogue_cols]))
     st.caption("Scene columns: " + ", ".join([str(x) for x in scene_cols]))
-    st.info("Total duration is always 10 seconds. No markdown tables, no emojis, copy-safe unicode.")
-    st.info("Prompt 1: 3 voice lines. Prompt 2: 2 voice lines + 1 short disclaimer (3 lines total).")
-    st.info("Reset anti-duplicate button is at the bottom of the page.")
+    st.info("Prompt 1: 3 dòng thoại. Prompt 2: 2 dòng thoại + 1 dòng miễn trừ.")
 
 st.divider()
 
@@ -737,11 +704,9 @@ if uploaded:
     if st.button(btn_label, use_container_width=True):
         arr = []
         for _ in range(count):
-            # dialogue pick
             d_pool = filter_dialogues(shoe_type, tone)
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
-            # scenes pick
             scene_list = pick_n_unique_scenes(shoe_type, scene_count)
             timeline = split_10s_timeline(scene_count)
 
@@ -765,16 +730,21 @@ if uploaded:
         tabs = st.tabs([str(i + 1) for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
-                st.text_area("Prompt", prompts[i], height=520, key=f"view_{i}")
-                copy_button_unicode_safe(prompts[i], key=f"copy_{i}")
+                st.write("Copy theo cách an toàn: click ô dưới -> Ctrl+A -> Ctrl+C (không dùng nút JS).")
+                st.text_area("Prompt", prompts[i], height=560, key=f"view_{i}")
+
+                st.download_button(
+                    label="Download prompt .txt (UTF-8)",
+                    data=prompts[i].encode("utf-8"),
+                    file_name=f"prompt_{i+1}.txt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
 else:
     st.warning("Upload a shoe image to begin.")
 
 st.divider()
 
-# =========================
-# RESET ANTI-DUP
-# =========================
 if st.button("Reset anti-duplicate"):
     st.session_state.used_dialogue_ids.clear()
     st.session_state.used_scene_ids.clear()
