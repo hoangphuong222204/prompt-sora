@@ -93,23 +93,23 @@ def copy_button_unicode_safe(text: str, key: str):
     text = normalize_text(text)
     payload = json.dumps(text)
     html = f"""
-    <button id="{key}" style="
+    <button id=\"{key}\" style=\"
         padding:8px 14px;border-radius:10px;border:1px solid #ccc;
-        cursor:pointer;background:#fff;font-weight:700;">COPY</button>
-    <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
+        cursor:pointer;background:#fff;font-weight:700;\">COPY</button>
+    <span id=\"{key}_s\" style=\"margin-left:8px;font-size:12px;\"></span>
     <script>
     (function() {{
-        const btn = document.getElementById("{key}");
-        const s = document.getElementById("{key}_s");
+        const btn = document.getElementById(\"{key}\");
+        const s = document.getElementById(\"{key}_s\");
         const text = {payload};
         btn.onclick = async () => {{
             try {{
                 await navigator.clipboard.writeText(text);
-                s.innerText = "Copied";
-                setTimeout(()=>s.innerText="",1500);
+                s.innerText = \"Copied\";
+                setTimeout(()=>s.innerText=\"\",1500);
             }} catch(e) {{
-                s.innerText = "Clipboard blocked";
-                setTimeout(()=>s.innerText="",2500);
+                s.innerText = \"Clipboard blocked\";
+                setTimeout(()=>s.innerText=\"\",2500);
             }}
         }};
     }})();
