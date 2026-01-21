@@ -1,0 +1,13 @@
+id,style_name,tone,pacing,emotion,delivery,extra_rules
+vs_01,Natural Review,Warm male,Medium slow,Calm casual,Like talking to phone camera,No selling tone; natural breathing; soft sentence ending
+vs_02,Confident Gentle,Low warm male,Slow,Quiet confidence,Like personal sharing,Stable rhythm; light emphasis on key words
+vs_03,Emotional Soft,Soft deep male,Slow,Relaxed reflective,Like thinking out loud,Lower volume at sentence end; longer pauses
+vs_04,Daily Vlog Male,Bright natural male,Medium,Positive fresh,Like casual daily vlog,Short sentences; light rising intonation
+vs_05,Luxury Calm Male,Low warm male,Very slow,Elegant calm,Like high-end product review,Very stable rhythm; minimal emotion
+vs_06,Gentle Sharing Male,Warm soft male,Slow,Trustworthy,Like sharing with close friend,Soft ending; breath between sentences
+vs_07,Focused Explaining Male,Clear steady male,Medium,Attentive,Like explaining details,Even pacing; clear articulation
+vs_08,Relaxed Weekend Male,Warm relaxed male,Medium slow,Comfortable,Like weekend chatting,Natural flow; slight smile in voice
+vs_09,Masculine Stable,Deep steady male,Slow,Strong calm,Like confident mature man speaking,Deep tone; firm sentence endings
+vs_10,Youth Casual Male,Bright young male,Medium fast,Light cheerful,Like young lifestyle vlog,Short pauses; lively rhythm
+vs_11,Premium Minimal Male,Low clean male,Very slow,Minimal calm,Like luxury whisper review,Very low emotion; smooth continuous flow
+vs_12,Quiet Story Male,Warm deep male,Slow,Soft storytelling,Like calm night sharing,Long pauses; gentle breathing
