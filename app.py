@@ -13,31 +13,109 @@ from PIL import Image
 # =========================
 st.set_page_config(page_title="Sora Prompt Studio Pro - Director Edition", layout="wide")
 st.title("Sora Prompt Studio Pro - Director Edition")
-st.caption("Prompt 1 & 2 - Total 10s - Multi-shot - Anti-duplicate - TikTok Shop SAFE - Copy Safe Unicode")
+st.caption("Prompt 1 & 2 - Total 10s - Multi-shot - Anti-duplicate - TikTok Shop SAFE - Sora-safe prompt + Copy-safe")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
-
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
 REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
 # =========================
-# TEXT NORMALIZE (COPY SAFE)
+# SORA SAFE TEXT NORMALIZE
 # =========================
-ZERO_WIDTH_PATTERN = r"[\u200b\u200c\u200d\uFEFF]"
+ZERO_WIDTH_PATTERN = r"[\u200b\u200c\u200d\uFEFF\u2060]"
+CTRL_PATTERN = r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]"
+
+def nfc(s: str) -> str:
+    try:
+        return unicodedata.normalize("NFC", s)
+    except Exception:
+        return s
+
+def fix_mojibake(s: str) -> str:
+    """
+    Fix common mojibake: when UTF-8 text was wrongly decoded as latin1/cp1252.
+    Example: "pháº£n" / "Ã¡" / "Ä‘Æ°á»�ng"...
+    We'll attempt: latin1 bytes -> utf8 decode if it looks like mojibake.
+    """
+    if not s:
+        return s
+    # heuristic triggers
+    if any(x in s for x in ["Ã", "Â", "Ä", "áº", "Æ°", "»", "¼", "½"]):
+        try:
+            repaired = s.encode("latin1", errors="ignore").decode("utf-8", errors="ignore")
+            # accept only if it improved (has Vietnamese letters or removed mojibake markers)
+            if repaired and (("Ã" not in repaired) and ("Ä" not in repaired)):
+                return repaired
+        except Exception:
+            pass
+    return s
 
 def normalize_text(s: str) -> str:
     if s is None:
         return ""
     s = str(s)
-    # Normalize combining marks to composed form
-    try:
-        s = unicodedata.normalize("NFC", s)
-    except Exception:
-        pass
-    # Remove zero-width / BOM
-    s = re.sub(ZERO_WIDTH_PATTERN, "", s)
-    # Normalize newlines
     s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = re.sub(ZERO_WIDTH_PATTERN, "", s)
+    s = re.sub(CTRL_PATTERN, "", s)
+    s = nfc(s)
+    s = fix_mojibake(s)
+    s = nfc(s)
+    return s
+
+def compact_spaces(s: str) -> str:
+    s = normalize_text(s)
+    s = re.sub(r"[ \t]+", " ", s).strip()
+    return s
+
+def sora_sanitize_block(s: str) -> str:
+    """
+    Make prompt Sora-friendly:
+    - No markdown tables
+    - No emojis / box drawing lines
+    - No weird bullets
+    - Keep Vietnamese diacritics OK
+    """
+    s = normalize_text(s)
+
+    # Replace fancy dashes/arrows/box drawing with plain ASCII
+    replacements = {
+        "—": "-",
+        "–": "-",
+        "→": "->",
+        "•": "-",
+        "●": "-",
+        "▪": "-",
+        "▫": "-",
+        "“": '"',
+        "”": '"',
+        "’": "'",
+        "‘": "'",
+        "…": "...",
+        "═": "=",
+        "║": "|",
+        "╔": "+",
+        "╗": "+",
+        "╚": "+",
+        "╝": "+",
+        "╠": "+",
+        "╣": "+",
+        "╦": "+",
+        "╩": "+",
+        "╬": "+",
+    }
+    for a, b in replacements.items():
+        s = s.replace(a, b)
+
+    # Remove most emojis / pictographs ranges (safe-ish)
+    s = re.sub(r"[\U0001F000-\U0001FAFF]", "", s)
+
+    # Collapse too many blank lines
+    s = re.sub(r"\n{3,}", "\n\n", s)
+
+    # Trim each line
+    lines = [line.rstrip() for line in s.split("\n")]
+    s = "\n".join(lines).strip()
+
     return s
 
 def safe_text(v) -> str:
@@ -53,21 +131,16 @@ def safe_text(v) -> str:
         return ""
     return s
 
-def compact_spaces(s: str) -> str:
-    s = normalize_text(s)
-    s = re.sub(r"[ \t]+", " ", s).strip()
-    return s
-
 # =========================
-# COPY BUTTON (UNICODE SAFE)
+# COPY BUTTON (SAFE)
 # =========================
-def copy_button_unicode_safe(text: str, key: str):
+def copy_button_sora_safe(text: str, key: str):
     """
     Copy via navigator.clipboard.writeText using JSON string payload (keeps Unicode safely).
-    Avoid base64/atob issues and avoids hidden characters via normalize_text.
+    Also sanitize prompt to avoid weird chars that can break Sora.
     """
-    text = normalize_text(text)
-    payload = json.dumps(text)  # safe JS string
+    text = sora_sanitize_block(text)
+    payload = json.dumps(text)  # JS safe string (unicode escaped)
     html = f"""
     <button id="{key}" style="
         padding:8px 14px;border-radius:10px;border:1px solid #ccc;
@@ -102,26 +175,43 @@ if missing:
     st.stop()
 
 # =========================
-# LOAD CSV (UTF-8 friendly)
+# LOAD CSV (FIX ENCODING)
 # =========================
 @st.cache_data
 def read_csv_flexible(path: str) -> pd.DataFrame:
-    # Try utf-8-sig first to handle BOM, then utf-8
-    try:
-        return pd.read_csv(path, encoding="utf-8-sig")
-    except Exception:
-        return pd.read_csv(path, encoding="utf-8", errors="replace")
+    """
+    Try multiple encodings to avoid mojibake:
+    - utf-8-sig: handle BOM from Excel/GitHub
+    - utf-8
+    - cp1258 (VN Windows)
+    - cp1252/latin1 fallback
+    """
+    for enc in ["utf-8-sig", "utf-8", "cp1258", "cp1252", "latin1"]:
+        try:
+            df = pd.read_csv(path, encoding=enc)
+            return df
+        except Exception:
+            continue
+    # last resort
+    return pd.read_csv(path, encoding="utf-8", errors="replace")
 
 @st.cache_data
 def load_dialogues():
     df = read_csv_flexible("dialogue_library.csv")
     df.columns = [c.strip() for c in df.columns.tolist()]
+    # normalize all string cells to avoid hidden chars
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = df[c].astype(str).map(normalize_text)
     return df.to_dict(orient="records"), df.columns.tolist()
 
 @st.cache_data
 def load_scenes():
     df = read_csv_flexible("scene_library.csv")
     df.columns = [c.strip() for c in df.columns.tolist()]
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = df[c].astype(str).map(normalize_text)
     return df.to_dict(orient="records"), df.columns.tolist()
 
 @st.cache_data
@@ -129,24 +219,27 @@ def load_disclaimer_prompt2_flexible():
     df = read_csv_flexible("disclaimer_prompt2.csv")
     cols = [c.strip() for c in df.columns.tolist()]
     df.columns = cols
+    for c in df.columns:
+        if df[c].dtype == object:
+            df[c] = df[c].astype(str).map(normalize_text)
 
     if "disclaimer" in cols:
         arr = df["disclaimer"].dropna().astype(str).tolist()
-        return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
+        return [compact_spaces(x) for x in arr if compact_spaces(x)]
 
     preferred = ["text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line", "script"]
     for c in preferred:
         if c in cols:
             arr = df[c].dropna().astype(str).tolist()
-            return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
+            return [compact_spaces(x) for x in arr if compact_spaces(x)]
 
     if len(cols) >= 2 and cols[0].lower() in ["id", "stt", "no"]:
         arr = df[cols[1]].dropna().astype(str).tolist()
-        return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
+        return [compact_spaces(x) for x in arr if compact_spaces(x)]
 
     last = cols[-1]
     arr = df[last].dropna().astype(str).tolist()
-    return [normalize_text(x).strip() for x in arr if normalize_text(x).strip()]
+    return [compact_spaces(x) for x in arr if compact_spaces(x)]
 
 dialogues, dialogue_cols = load_dialogues()
 scenes, scene_cols = load_scenes()
@@ -249,8 +342,8 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
 
     try:
         import google.generativeai as genai
-    except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}"
+    except Exception:
+        return None, "IMPORT_FAIL"
 
     try:
         genai.configure(api_key=api_key)
@@ -260,11 +353,11 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         for m in models:
             if "generateContent" in getattr(m, "supported_generation_methods", []):
                 available.append(m.name)
-
         if not available:
             return None, "NO_MODELS"
 
         preferred = [
+            "models/gemini-2.5-flash",
             "models/gemini-1.5-flash",
             "models/gemini-1.5-pro",
             "models/gemini-pro-vision",
@@ -397,7 +490,7 @@ TONE_BANK = {
 }
 
 def split_sentences(text: str) -> List[str]:
-    t = safe_text(text)
+    t = compact_spaces(safe_text(text))
     if not t:
         return []
     parts = [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
@@ -406,7 +499,7 @@ def split_sentences(text: str) -> List[str]:
 def get_dialogue_from_csv(row: dict) -> str:
     for col in ["dialogue", "text", "line", "content", "script", "noi_dung"]:
         if col in row and safe_text(row.get(col)):
-            return safe_text(row.get(col))
+            return compact_spaces(safe_text(row.get(col)))
     return ""
 
 def ensure_end_punct(s: str) -> str:
@@ -447,7 +540,7 @@ def get_dialogue_3_sentences(row: dict, tone: str) -> str:
         c = random.choice(bank["close"])
 
     a, b, c = ensure_end_punct(a), ensure_end_punct(b), ensure_end_punct(c)
-    return normalize_text(f"{a}\n{b}\n{c}")
+    return sora_sanitize_block(f"{a}\n{b}\n{c}")
 
 def get_dialogue_2_sentences(row: dict, tone: str) -> str:
     candidate = get_dialogue_from_csv(row)
@@ -471,7 +564,7 @@ def get_dialogue_2_sentences(row: dict, tone: str) -> str:
         b = random.choice(bank["mid"])
 
     a, b = ensure_end_punct(a), ensure_end_punct(b)
-    return normalize_text(f"{a}\n{b}")
+    return sora_sanitize_block(f"{a}\n{b}")
 
 def short_disclaimer(raw: str) -> str:
     s = compact_spaces(normalize_text(raw))
@@ -480,10 +573,10 @@ def short_disclaimer(raw: str) -> str:
     s = ensure_end_punct(s)
     if len(s) > 160:
         s = s[:160].rstrip() + "."
-    return normalize_text(s)
+    return sora_sanitize_block(s)
 
 # =========================
-# PROMPT BUILDER (PLAIN TEXT, UNICODE SAFE)
+# PROMPT BUILDER (SORA SAFE PLAIN TEXT)
 # =========================
 def build_prompt_unified(
     mode: str,
@@ -508,7 +601,6 @@ def build_prompt_unified(
             "No hard call to action, no price, no discount, no guarantees"
         )
 
-    # Scene block (English prompt style, but values can be Vietnamese; copy-safe keeps them correct)
     scene_lines = []
     for (sc, (a, b)) in zip(scene_list, timeline):
         loc = compact_spaces(safe_text(sc.get("location")))
@@ -516,16 +608,14 @@ def build_prompt_unified(
         mot = compact_spaces(safe_text(sc.get("motion")))
         wea = compact_spaces(safe_text(sc.get("weather")))
         mood = compact_spaces(safe_text(sc.get("mood")))
-
-        # Keep plain, avoid special symbols
         scene_lines.append(
-            f"{a:.1f}-{b:.1f}s: location {loc}, lighting {light}, motion {mot}, weather {wea}, mood {mood}"
+            f"{a:.1f}-{b:.1f}s: location {loc}; lighting {light}; motion {mot}; weather {wea}; mood {mood}"
         )
-    scene_block_plain = "\n".join(scene_lines)
+    scene_block = "\n".join(scene_lines)
 
-    shoe_name = compact_spaces(normalize_text(shoe_name))
-    shoe_type = compact_spaces(normalize_text(shoe_type))
-    voice_lines = normalize_text(voice_lines)
+    shoe_name = compact_spaces(shoe_name)
+    shoe_type = compact_spaces(shoe_type)
+    voice_lines = sora_sanitize_block(voice_lines)
 
     prompt_text = f"""
 SORA VIDEO PROMPT - {title} - TOTAL 10s
@@ -554,7 +644,7 @@ shoe_name: {shoe_name}
 shoe_type: {shoe_type}
 
 SHOTS INSIDE 10s
-{scene_block_plain}
+{scene_block}
 
 AUDIO TIMELINE
 0.0-1.2s: no voice, light ambient only
@@ -564,15 +654,15 @@ AUDIO TIMELINE
 VOICEOVER 1.2-6.9s
 {voice_lines}
 """
-    # Final normalize for copy safety
-    return normalize_text(prompt_text).strip()
+    return sora_sanitize_block(prompt_text).strip()
 
 # =========================
-# SIDEBAR: GEMINI KEY (session)
+# SIDEBAR: GEMINI KEY (session only)
 # =========================
 with st.sidebar:
     st.markdown("### Gemini API Key (optional)")
     st.caption("AI detects shoe_type from image. If AI fails, filename fallback is used.")
+    st.caption("Note: On a public web app, we should NOT hard-save your key in server code. Use session only.")
 
     api_key_input = st.text_input("GEMINI_API_KEY", value=st.session_state.gemini_api_key, type="password")
     c1, c2 = st.columns(2)
@@ -600,18 +690,18 @@ with left:
     mode = st.radio("Prompt mode", ["PROMPT 1 - No cameo", "PROMPT 2 - With cameo"], index=0)
     tone = st.selectbox("Tone", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
 
-    # Force 4 shots by default, still allow 2-4
+    # Default 4 shots (as chồng yêu cầu)
     scene_count = st.slider("Shots inside total 10s", 2, 4, 4)
     count = st.slider("Prompts per click", 1, 10, 5)
 
 with right:
     st.subheader("Guide")
-    st.write("Upload image, choose Prompt 1 or 2, choose tone, choose shots (default 4), click Generate, then Copy.")
+    st.write("Upload image -> choose Prompt mode -> choose tone -> choose shots (default 4) -> Generate -> Copy.")
     st.caption("Dialogue columns: " + ", ".join([str(x) for x in dialogue_cols]))
     st.caption("Scene columns: " + ", ".join([str(x) for x in scene_cols]))
-    st.info("Total video duration is always 10 seconds. Default is 4 shots (0-2.5, 2.5-5, 5-7.5, 7.5-10).")
-    st.info("Prompt 1: 3 voice lines. Prompt 2: 2 voice lines plus 1 short disclaimer (3 lines total).")
-    st.info("Copy Safe Unicode is enabled to prevent broken Vietnamese characters when pasting into Sora.")
+    st.info("Total duration is always 10 seconds. Default is 4 shots (0-2.5, 2.5-5, 5-7.5, 7.5-10).")
+    st.info("Prompt 1: 3 voice lines. Prompt 2: 2 voice lines + 1 short disclaimer.")
+    st.info("This version sanitizes hidden characters and fixes common Vietnamese mojibake before copying to Sora.")
 
 st.divider()
 
@@ -669,7 +759,7 @@ if uploaded:
                 voice_2 = get_dialogue_2_sentences(d, tone)
                 disclaimer_raw = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung chỉ mang tính chia sẻ trải nghiệm."
                 disclaimer = short_disclaimer(disclaimer_raw)
-                voice_lines = normalize_text(f"{voice_2}\n{disclaimer}")
+                voice_lines = sora_sanitize_block(f"{voice_2}\n{disclaimer}")
                 p = build_prompt_unified("p2", shoe_type, shoe_name, scene_list, timeline, voice_lines)
 
             arr.append(p)
@@ -682,10 +772,17 @@ if uploaded:
         tabs = st.tabs([str(i + 1) for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
-                # Display as plain text (copy-safe)
-                st.text_area("Prompt", prompts[i], height=420, key=f"view_{i}")
-                copy_button_unicode_safe(prompts[i], key=f"copy_{i}")
+                clean_prompt = sora_sanitize_block(prompts[i])
+                st.text_area("Prompt (Sora-safe)", clean_prompt, height=420, key=f"view_{i}")
+                copy_button_sora_safe(clean_prompt, key=f"copy_{i}")
 
+                # Optional: download as txt (some users paste better from file)
+                st.download_button(
+                    "Download .txt",
+                    data=clean_prompt.encode("utf-8"),
+                    file_name=f"sora_prompt_{i+1}.txt",
+                    mime="text/plain"
+                )
 else:
     st.warning("Upload a shoe image to begin.")
 
