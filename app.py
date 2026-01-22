@@ -20,11 +20,18 @@ from PIL import Image
 # - Text/logo orientation lock (no mirrored/reversed logo)
 # - Gemini API key nhập trực tiếp trên UI (không hard-code)
 # - Optional: Gemini auto-generate voice lines (text) per prompt
+# - HARD ANTI-DUP: no repeated lines across prompts in a batch + across session
+#   and ALSO no "word re-order" duplicates (bag-of-words signature)
+#
+# Prompt rules requested:
+# - PROMPT 1: 3 lines voice (all unique; no re-order dup)
+# - PROMPT 2: 2 lines voice + 1 disclaimer + 1 extra point (all unique)
+#             and MUST NOT duplicate any line used in PROMPT 1 (same batch/session)
 # ==========================================================
 
 st.set_page_config(page_title="Sora Prompt Studio Pro - Director Edition", layout="wide")
 st.title("Sora Prompt Studio Pro - Director Edition")
-st.caption("Prompt 1 & 2 • Total 10s • Multi-shot • Anti-duplicate • TikTok Shop SAFE • Copy Safe Unicode • Style Pack • Key-in-UI • AI Voice Lines")
+st.caption("Prompt 1 & 2 • Total 10s • Multi-shot • Anti-duplicate HARD • TikTok Shop SAFE • Copy Safe Unicode • Style Pack • Key-in-UI • AI Voice Lines")
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
@@ -95,14 +102,14 @@ def copy_button_unicode_safe(text: str, key: str):
     text = sanitize_for_sora(text)
     payload = json.dumps(text)
     html = f"""
-    <button id="{key}" style="
+    <button id=\"{key}\" style=\"
         padding:8px 14px;border-radius:10px;border:1px solid #ccc;
-        cursor:pointer;background:#fff;font-weight:700;">COPY</button>
-    <span id="{key}_s" style="margin-left:8px;font-size:12px;"></span>
+        cursor:pointer;background:#fff;font-weight:700;\">COPY</button>
+    <span id=\"{key}_s\" style=\"margin-left:8px;font-size:12px;\"></span>
     <script>
     (function() {{
-        const btn = document.getElementById("{key}");
-        const s = document.getElementById("{key}_s");
+        const btn = document.getElementById(\"{key}\");
+        const s = document.getElementById(\"{key}_s\");
         const text = {payload};
         btn.onclick = async () => {{
             try {{
@@ -176,6 +183,56 @@ if "generated_prompts" not in st.session_state:
     st.session_state.generated_prompts = []
 if "gemini_api_key" not in st.session_state:
     st.session_state.gemini_api_key = ""
+
+# HARD anti-dup for voice lines (across the whole session)
+if "used_voice_sig_exact" not in st.session_state:
+    st.session_state.used_voice_sig_exact = set()
+if "used_voice_sig_bow" not in st.session_state:
+    st.session_state.used_voice_sig_bow = set()
+
+# =========================
+# HARD ANTI-DUP SIGNATURES
+# =========================
+_KEEP_LETTERS_RE = re.compile(r"[^0-9a-zA-ZÀ-ỹĐđ\s]+", flags=re.UNICODE)
+
+def _tok(s: str) -> List[str]:
+    s = sanitize_for_sora(s).lower()
+    s = _KEEP_LETTERS_RE.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return []
+    return s.split(" ")
+
+def sig_exact(s: str) -> str:
+    return " ".join(_tok(s))
+
+def sig_bow(s: str) -> str:
+    toks = _tok(s)
+    toks.sort()
+    return " ".join(toks)
+
+def is_line_used(line: str, forbid_exact: set, forbid_bow: set) -> bool:
+    ex = sig_exact(line)
+    bw = sig_bow(line)
+    if not ex or not bw:
+        return True
+    return (
+        ex in forbid_exact
+        or bw in forbid_bow
+        or ex in st.session_state.used_voice_sig_exact
+        or bw in st.session_state.used_voice_sig_bow
+    )
+
+def mark_lines_used(lines: List[str], forbid_exact: set, forbid_bow: set):
+    for ln in lines:
+        ex = sig_exact(ln)
+        bw = sig_bow(ln)
+        if not ex or not bw:
+            continue
+        forbid_exact.add(ex)
+        forbid_bow.add(bw)
+        st.session_state.used_voice_sig_exact.add(ex)
+        st.session_state.used_voice_sig_bow.add(bw)
 
 # =========================
 # UTILS
@@ -269,18 +326,15 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         return None, "NO_KEY"
     try:
         import google.generativeai as genai
-    except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}"
+    except Exception:
+        return None, "IMPORT_FAIL"
     try:
         genai.configure(api_key=api_key)
         picked = gemini_pick_model_name(genai)
         if not picked:
             return None, "NO_MODELS"
         model = genai.GenerativeModel(picked)
-        prompt = (
-            "Return ONLY ONE label from: " + ", ".join(SHOE_TYPES) + ".\n"
-            "No explanation.\n"
-        )
+        prompt = "Return ONLY ONE label from: " + ", ".join(SHOE_TYPES) + ". No explanation."
         resp = model.generate_content([prompt, img])
         text = (getattr(resp, "text", "") or "").strip().lower()
         raw = f"{picked} -> {text}" if text else f"{picked} -> EMPTY_TEXT"
@@ -353,29 +407,41 @@ def split_sentences(text: str) -> List[str]:
         return []
     return [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
 
-def csv_voice_lines(row: dict, n_lines: int) -> str:
+def csv_candidate_pool_from_row(row: dict) -> List[str]:
     parts = split_sentences(get_dialogue_from_csv(row))
-    defaults = [
-        "Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn.",
-        "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định.",
-        "Nhìn tổng thể tối giản nhưng vẫn có điểm tinh tế.",
-    ]
-    out = []
-    for i in range(n_lines):
-        if i < len(parts):
-            out.append(ensure_end_punct(parts[i]))
-        else:
-            out.append(defaults[min(i, len(defaults)-1)])
-    return normalize_text("\n".join(out))
+    return [ensure_end_punct(p) for p in parts if compact_spaces(p)]
 
-def gemini_generate_voice_lines(api_key: str, shoe_type: str, tone: str, voice_style: str, n_lines: int) -> Tuple[Optional[str], str]:
+DEFAULT_VOICE_POOL = [
+    "Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn.",
+    "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định.",
+    "Nhìn tổng thể tối giản nhưng vẫn có điểm tinh tế.",
+    "Mình thích kiểu form nhìn gọn, bước đi có nhịp và dễ phối đồ.",
+    "Cảm giác lên chân khá nhẹ, di chuyển tự nhiên và không bị gò.",
+    "Tổng thể sạch, nhìn đứng dáng và hợp nhiều bối cảnh.",
+    "Bước chậm cũng đẹp, bước nhanh vẫn gọn và chắc nhịp.",
+]
+
+EXTRA_POINT_POOL = [
+    "Form nhìn gọn, dễ phối đồ hằng ngày.",
+    "Nhịp bước đều, cảm giác di chuyển khá tự nhiên.",
+    "Tổng thể sạch và nhìn rất đứng dáng.",
+    "Lên chân nhìn cân đối, không bị rối mắt.",
+    "Đi dạo nhẹ cũng thấy thoải mái và ổn định.",
+    "Chụp góc thấp vẫn giữ được dáng giày rõ ràng.",
+    "Di chuyển mượt, nhìn gọn và có nhịp.",
+    "Phong cách tối giản nên dễ match nhiều outfit.",
+    "Cảm giác bước chân êm và chắc nhịp hơn mình nghĩ.",
+    "Nhìn nghiêng vẫn giữ form đẹp và rõ chi tiết.",
+]
+
+def gemini_generate_voice_lines(api_key: str, shoe_type: str, tone: str, voice_style: str, n_lines: int) -> Tuple[Optional[List[str]], str]:
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
     try:
         import google.generativeai as genai
-    except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}"
+    except Exception:
+        return None, "IMPORT_FAIL"
     try:
         genai.configure(api_key=api_key)
         picked = gemini_pick_model_name(genai)
@@ -387,21 +453,66 @@ Viết đúng {n_lines} câu tiếng Việt để làm lời thoại review ng�
 Chỉ trả về {n_lines} dòng, mỗi dòng 1 câu, không đánh số, không emoji.
 Mỗi câu 8–16 từ. Tone: {tone}. Gợi ý cách đọc: {voice_style}.
 Nội dung: cảm giác/nhịp bước/độ gọn gàng, nói tự nhiên như clip điện thoại.
-CẤM: giá, giảm giá, khuyến mãi, bảo hành, cam kết tuyệt đối, so sánh hãng khác, công dụng y tế, vật liệu nhạy cảm.
+
+CẤM: giá, giảm giá, khuyến mãi, bảo hành, cam kết tuyệt đối, so sánh với sản phẩm khác,
+công dụng y tế, vật liệu nhạy cảm, kêu gọi mua ngay.
+
 shoe_type: {shoe_type}
 """
         resp = model.generate_content(prompt)
-        text = normalize_text(getattr(resp, "text", "") or "")
+        text = sanitize_for_sora(getattr(resp, "text", "") or "")
         if not text:
             return None, f"{picked} -> EMPTY_TEXT"
-        lines = [compact_spaces(x) for x in text.split("\n") if compact_spaces(x)]
+        lines = [ensure_end_punct(compact_spaces(x)) for x in text.split("\n") if compact_spaces(x)]
         lines = lines[:n_lines]
         if len(lines) < n_lines:
             return None, f"{picked} -> NOT_ENOUGH_LINES"
-        lines = [ensure_end_punct(x) for x in lines]
-        return normalize_text("\n".join(lines)), f"{picked} -> OK"
+        return lines, f"{picked} -> OK"
     except Exception as e:
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
+
+def pick_unique_lines_from_pool(candidates: List[str], need: int, forbid_exact: set, forbid_bow: set, max_tries: int = 200) -> List[str]:
+    out: List[str] = []
+    tries = 0
+    if not candidates:
+        candidates = DEFAULT_VOICE_POOL[:]
+    while len(out) < need and tries < max_tries:
+        tries += 1
+        cand = ensure_end_punct(random.choice(candidates))
+        if not cand:
+            continue
+        if is_line_used(cand, forbid_exact, forbid_bow):
+            continue
+        if any(sig_bow(cand) == sig_bow(x) or sig_exact(cand) == sig_exact(x) for x in out):
+            continue
+        out.append(cand)
+        mark_lines_used([cand], forbid_exact, forbid_bow)
+    return out
+
+def pick_unique_disclaimer(disclaimers: List[str], forbid_exact: set, forbid_bow: set) -> str:
+    pool = disclaimers[:] if disclaimers else ["Nội dung chỉ mang tính chia sẻ trải nghiệm."]
+    for _ in range(60):
+        cand = short_disclaimer(random.choice(pool))
+        if not is_line_used(cand, forbid_exact, forbid_bow):
+            mark_lines_used([cand], forbid_exact, forbid_bow)
+            return cand
+    base = "Nội dung chỉ mang tính chia sẻ trải nghiệm cá nhân."
+    cand = ensure_end_punct(base)
+    if is_line_used(cand, forbid_exact, forbid_bow):
+        cand = ensure_end_punct(base + " Mỗi người có cảm nhận khác nhau")
+    mark_lines_used([cand], forbid_exact, forbid_bow)
+    return cand
+
+def pick_unique_extra_point(forbid_exact: set, forbid_bow: set) -> str:
+    pool = EXTRA_POINT_POOL[:]
+    for _ in range(80):
+        cand = ensure_end_punct(random.choice(pool))
+        if not is_line_used(cand, forbid_exact, forbid_bow):
+            mark_lines_used([cand], forbid_exact, forbid_bow)
+            return cand
+    cand = ensure_end_punct("Mình thấy tổng thể gọn gàng và dễ nhìn.")
+    mark_lines_used([cand], forbid_exact, forbid_bow)
+    return cand
 
 # =========================
 # PROMPT BUILDER
@@ -590,6 +701,7 @@ with right:
     st.write("Mỗi lần bấm **Generate** sẽ ra **5 prompt** và **5 phong cách video** khác nhau.")
     st.write("Có khóa **sáng + nét** để tránh video tối/mờ.")
     st.write("Có khóa **hướng chữ/logo** để tránh bị ngược chữ trên giày.")
+    st.write("**HARD anti-dup**: không trùng câu, kể cả đảo lộn từ (signature bag-of-words).")
     st.caption("Dialogue cols: " + ", ".join([str(x) for x in dialogue_cols]))
     st.caption("Scene cols: " + ", ".join([str(x) for x in scene_cols]))
 
@@ -626,46 +738,98 @@ if uploaded:
         arr = []
         batch_used_styles = set()
 
+        # batch forbid => ensures Prompt 2 never duplicates Prompt 1 in the same click
+        batch_forbid_exact = set()
+        batch_forbid_bow = set()
+
         for _ in range(count):
             style = pick_unique_style_for_batch(batch_used_styles)
             scene_list = pick_n_unique_scenes(shoe_type, scene_count)
             timeline = split_10s_timeline(scene_count)
             voice_style = pick_voice_style()
 
-            # Voice lines: Gemini or CSV
-            if mode_ui.startswith("PROMPT 1"):
-                n_lines = 3
-                mode = "p1"
-            else:
-                n_lines = 2
-                mode = "p2"
+            want_p1 = mode_ui.startswith("PROMPT 1")
+            mode = "p1" if want_p1 else "p2"
 
-            if use_ai_voice and st.session_state.gemini_api_key:
-                gen_lines, dbg = gemini_generate_voice_lines(
-                    api_key=st.session_state.gemini_api_key,
-                    shoe_type=shoe_type,
-                    tone=tone,
-                    voice_style=voice_style,
-                    n_lines=n_lines,
-                )
-                if gen_lines:
-                    voice_lines = gen_lines
-                    if show_ai_debug:
-                        st.caption("AI voice: " + dbg)
-                else:
-                    if show_ai_debug:
-                        st.caption("AI voice fallback: " + dbg)
-                    d_pool = filter_dialogues(shoe_type, tone)
-                    d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-                    voice_lines = csv_voice_lines(d, n_lines)
-            else:
-                d_pool = filter_dialogues(shoe_type, tone)
-                d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
-                voice_lines = csv_voice_lines(d, n_lines)
+            d_pool = filter_dialogues(shoe_type, tone)
+            d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
+            csv_pool = csv_candidate_pool_from_row(d) + DEFAULT_VOICE_POOL
 
-            if mode == "p2":
-                disc_raw = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung chỉ mang tính chia sẻ trải nghiệm."
-                voice_lines = normalize_text(f"{voice_lines}\n{short_disclaimer(disc_raw)}")
+            voice_lines_list: List[str] = []
+
+            if mode == "p1":
+                need = 3
+                if use_ai_voice and st.session_state.gemini_api_key:
+                    ok = False
+                    dbg_last = ""
+                    for _try in range(3):
+                        gen_lines, dbg = gemini_generate_voice_lines(
+                            api_key=st.session_state.gemini_api_key,
+                            shoe_type=shoe_type,
+                            tone=tone,
+                            voice_style=voice_style,
+                            n_lines=need,
+                        )
+                        dbg_last = dbg
+                        if not gen_lines:
+                            continue
+                        tmp_ok = True
+                        for ln in gen_lines:
+                            if is_line_used(ln, batch_forbid_exact, batch_forbid_bow):
+                                tmp_ok = False
+                                break
+                        if tmp_ok:
+                            voice_lines_list = [ensure_end_punct(x) for x in gen_lines]
+                            mark_lines_used(voice_lines_list, batch_forbid_exact, batch_forbid_bow)
+                            ok = True
+                            if show_ai_debug:
+                                st.caption("AI voice(P1): " + dbg)
+                            break
+                    if not ok and show_ai_debug and dbg_last:
+                        st.caption("AI voice(P1) fallback: " + dbg_last)
+
+                if not voice_lines_list:
+                    voice_lines_list = pick_unique_lines_from_pool(csv_pool, need, batch_forbid_exact, batch_forbid_bow)
+
+            else:
+                need = 2
+                if use_ai_voice and st.session_state.gemini_api_key:
+                    ok = False
+                    dbg_last = ""
+                    for _try in range(3):
+                        gen_lines, dbg = gemini_generate_voice_lines(
+                            api_key=st.session_state.gemini_api_key,
+                            shoe_type=shoe_type,
+                            tone=tone,
+                            voice_style=voice_style,
+                            n_lines=need,
+                        )
+                        dbg_last = dbg
+                        if not gen_lines:
+                            continue
+                        tmp_ok = True
+                        for ln in gen_lines:
+                            if is_line_used(ln, batch_forbid_exact, batch_forbid_bow):
+                                tmp_ok = False
+                                break
+                        if tmp_ok:
+                            voice_lines_list = [ensure_end_punct(x) for x in gen_lines]
+                            mark_lines_used(voice_lines_list, batch_forbid_exact, batch_forbid_bow)
+                            ok = True
+                            if show_ai_debug:
+                                st.caption("AI voice(P2): " + dbg)
+                            break
+                    if not ok and show_ai_debug and dbg_last:
+                        st.caption("AI voice(P2) fallback: " + dbg_last)
+
+                if not voice_lines_list:
+                    voice_lines_list = pick_unique_lines_from_pool(csv_pool, need, batch_forbid_exact, batch_forbid_bow)
+
+                disclaimer_line = pick_unique_disclaimer(disclaimers_p2, batch_forbid_exact, batch_forbid_bow)
+                extra_line = pick_unique_extra_point(batch_forbid_exact, batch_forbid_bow)
+                voice_lines_list = voice_lines_list + [disclaimer_line, extra_line]
+
+            voice_lines = "\n".join([sanitize_for_sora(x) for x in voice_lines_list if compact_spaces(x)])
 
             prompt = build_prompt(
                 mode=mode,
@@ -687,7 +851,7 @@ if uploaded:
         tabs = st.tabs([str(i + 1) for i in range(len(prompts))])
         for i, tab in enumerate(tabs):
             with tab:
-                st.text_area("Prompt", prompts[i], height=600, key=f"view_{i}")
+                st.text_area("Prompt", prompts[i], height=650, key=f"view_{i}")
                 copy_button_unicode_safe(prompts[i], key=f"copy_{i}")
 else:
     st.warning("Upload a shoe image to begin.")
@@ -696,5 +860,7 @@ st.divider()
 if st.button("Reset anti-duplicate"):
     st.session_state.used_dialogue_ids.clear()
     st.session_state.used_scene_ids.clear()
+    st.session_state.used_voice_sig_exact.clear()
+    st.session_state.used_voice_sig_bow.clear()
     st.session_state.generated_prompts = []
     st.success("Reset done.")
