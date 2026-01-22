@@ -1,5 +1,4 @@
-from pathlib import Path
-app_code = r'''import streamlit as st
+import streamlit as st
 import pandas as pd
 import random
 import re
@@ -11,15 +10,18 @@ from PIL import Image
 
 # ==========================================================
 # Sora Prompt Studio Pro - Director Edition (SORA ENGINE SAFE)
+# Cloud-safe: NO file writing, NO hard-coded API keys
 # - Total 10s prompt
 # - 2 modes: Prompt 1 (no cameo) / Prompt 2 (with cameo)
 # - 2–4 shots inside 10s (default 4)
 # - 5 prompts per click (default)
 # - 5 different visual styles per batch (style pack)
 # - Voice style pack (đa dạng cách đọc)
-# - Unicode copy-safe (không lỗi dấu khi copy/paste)
-# - Optional "SORA punctuation-safe" (thay ký tự gạch dài/khung bằng ký tự đơn giản hơn)
-# - Gemini API key nhập trực tiếp trên UI (không hard-code)
+# - Unicode copy-safe (không lỗi dấu)
+# - Text/logo orientation lock (no mirrored/reversed logo)
+# - Gemini API key nhập trực tiếp trên UI (session only)
+# - CSV flexible: dùng file trong repo nếu có; nếu không có thì cho upload CSV trong app;
+#   nếu vẫn không có thì dùng "built-in mini library" để app luôn chạy được.
 # ==========================================================
 
 st.set_page_config(page_title="Sora Prompt Studio Pro - Director Edition", layout="wide")
@@ -28,8 +30,6 @@ st.caption("Prompt 1 & 2 • Total 10s • Multi-shot • Anti-duplicate • Tik
 
 CAMEO_VOICE_ID = "@phuongnghi18091991"
 SHOE_TYPES = ["sneaker", "runner", "leather", "casual", "sandals", "boots", "luxury"]
-
-REQUIRED_FILES = ["dialogue_library.csv", "scene_library.csv", "disclaimer_prompt2.csv"]
 
 # =========================
 # TEXT NORMALIZE (COPY SAFE)
@@ -46,7 +46,6 @@ def normalize_text(s: str) -> str:
         pass
     s = re.sub(ZERO_WIDTH_PATTERN, "", s)
     s = s.replace("\r\n", "\n").replace("\r", "\n")
-    # remove trailing spaces each line
     s = "\n".join([line.rstrip() for line in s.split("\n")])
     return s.strip()
 
@@ -86,38 +85,11 @@ def short_disclaimer(raw: str) -> str:
     return normalize_text(s)
 
 # =========================
-# SORA PUNCTUATION SAFE
-# - Chỉ thay các ký tự dễ gây lỗi parse (gạch dài / khung / bullet đặc biệt)
-# - KHÔNG đụng tiếng Việt có dấu
-# =========================
-HEAVY_SEP = "══════════════════════════════════"
-LIGHT_SEP = "----------------------------------"
-
-def sora_punct_safe(text: str, enable: bool) -> str:
-    if not enable:
-        return text
-    t = text
-    # separators
-    t = t.replace(HEAVY_SEP, LIGHT_SEP)
-    # long dashes to normal hyphen
-    t = t.replace("—", "-").replace("–", "-")
-    # bullets / arrows / weird punctuation (keep it simple)
-    t = t.replace("•", "-").replace("→", "->").replace("✔", "").replace("✖", "").replace("✅", "").replace("🚫", "")
-    # collapse multiple spaces
-    t = re.sub(r"[ \t]+", " ", t)
-    # keep line breaks, strip trailing
-    t = "\n".join([ln.rstrip() for ln in t.split("\n")])
-    return t.strip()
-
-# =========================
 # COPY BUTTON (UNICODE SAFE)
 # =========================
 def copy_button_unicode_safe(text: str, key: str):
-    """
-    Copy via navigator.clipboard.writeText using JSON string payload (keeps Unicode safely).
-    """
     text = normalize_text(text)
-    payload = json.dumps(text)
+    payload = json.dumps(text, ensure_ascii=False)
     html = f"""
     <button id="{key}" style="
         padding:8px 14px;border-radius:10px;border:1px solid #ccc;
@@ -144,52 +116,96 @@ def copy_button_unicode_safe(text: str, key: str):
     st.components.v1.html(html, height=44)
 
 # =========================
-# FILE CHECK
+# FALLBACK MINI LIBRARIES (so app always runs)
 # =========================
-missing = [f for f in REQUIRED_FILES if not Path(f).exists()]
-if missing:
-    st.error("Missing files: " + ", ".join(missing) + " (must be in same folder as app.py)")
-    st.stop()
+BUILTIN_DIALOGUES = [
+    {"id":"vn_001","tone":"Tự tin","shoe_type":"leather","dialogue":"Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn. Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định. Nhìn tổng thể tối giản nhưng vẫn có điểm tinh tế."},
+    {"id":"vn_002","tone":"Tự nhiên","shoe_type":"sneaker","dialogue":"Mình thích kiểu nhìn sạch và dễ phối. Bước đi thấy khá nhẹ, nhịp chân thoải mái. Tổng thể gọn, nhìn lên form ổn."},
+    {"id":"vn_003","tone":"Mạnh mẽ","shoe_type":"runner","dialogue":"Mình ưu tiên cảm giác chắc chân khi di chuyển. Nhịp bước nhanh mà vẫn gọn. Nhìn tổng thể thể thao, sáng dáng."},
+    {"id":"vn_004","tone":"Lãng mạn","shoe_type":"casual","dialogue":"Mình thích vibe đơn giản, nhẹ nhàng mà vẫn gọn. Đi một vòng thấy thoải mái. Tổng thể nhìn tinh tế, dễ hợp nhiều outfit."},
+    {"id":"vn_005","tone":"Truyền cảm","shoe_type":"luxury","dialogue":"Mình chọn kiểu tối giản để mọi thứ nhìn sang hơn. Cảm giác bước đi đều, nhẹ. Tổng thể sạch, nhìn có gu."},
+]
+
+BUILTIN_SCENES = [
+    {"id":"scn_001","shoe_type":"leather","location":"bright boutique studio, marble counter","lighting":"soft daylight, HDR+","motion":"smooth orbit, gentle push-in","weather":"indoor clean","mood":"premium"},
+    {"id":"scn_002","shoe_type":"sneaker","location":"daylight cafe minimal, wooden table","lighting":"bright window light, crisp edges","motion":"handheld-stable phone realism, micro sway","weather":"indoor daylight","mood":"fresh"},
+    {"id":"scn_003","shoe_type":"runner","location":"modern street morning, clean sidewalk","lighting":"bright morning, controlled highlights","motion":"tracking low angle, smooth glide","weather":"clear sky","mood":"energetic"},
+    {"id":"scn_004","shoe_type":"casual","location":"penthouse window light, neutral wall","lighting":"bright window light, no haze","motion":"slow pan + gentle dolly","weather":"indoor","mood":"calm"},
+    {"id":"scn_005","shoe_type":"luxury","location":"showroom table macro, premium shelf background","lighting":"high-key lighting, zero noise","motion":"macro move, keep shoe ultra sharp","weather":"indoor","mood":"luxury"},
+]
+
+BUILTIN_DISCLAIMERS = [
+    "Nội dung chỉ mang tính chia sẻ trải nghiệm.",
+    "Video mang tính minh hoạ trải nghiệm thực tế.",
+    "Chia sẻ cảm nhận cá nhân, không phải cam kết.",
+    "Thông tin trong video chỉ để tham khảo.",
+]
 
 # =========================
-# LOAD CSV (UTF-8 friendly)
+# LOAD CSV (repo file OR uploaded OR builtin)
 # =========================
 @st.cache_data
-def read_csv_flexible(path: str) -> pd.DataFrame:
+def read_csv_bytes(file_bytes: bytes) -> pd.DataFrame:
     try:
-        return pd.read_csv(path, encoding="utf-8-sig")
+        return pd.read_csv(pd.io.common.BytesIO(file_bytes), encoding="utf-8-sig")
     except Exception:
-        return pd.read_csv(path, encoding="utf-8", errors="replace")
+        return pd.read_csv(pd.io.common.BytesIO(file_bytes), encoding="utf-8", errors="replace")
 
 @st.cache_data
-def load_dialogues():
-    df = read_csv_flexible("dialogue_library.csv")
-    df.columns = [c.strip() for c in df.columns.tolist()]
-    return df.to_dict(orient="records"), df.columns.tolist()
+def read_csv_path(path: str) -> Optional[pd.DataFrame]:
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return pd.read_csv(p, encoding="utf-8-sig")
+    except Exception:
+        try:
+            return pd.read_csv(p, encoding="utf-8", errors="replace")
+        except Exception:
+            return None
 
-@st.cache_data
-def load_scenes():
-    df = read_csv_flexible("scene_library.csv")
-    df.columns = [c.strip() for c in df.columns.tolist()]
-    return df.to_dict(orient="records"), df.columns.tolist()
+def df_to_records(df: Optional[pd.DataFrame]) -> List[dict]:
+    if df is None or df.empty:
+        return []
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns.tolist()]
+    return df.to_dict(orient="records")
 
-@st.cache_data
-def load_disclaimers():
-    df = read_csv_flexible("disclaimer_prompt2.csv")
-    df.columns = [c.strip() for c in df.columns.tolist()]
-    # preferred cols
-    for c in ["disclaimer", "text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line", "script"]:
-        if c in df.columns:
-            arr = df[c].dropna().astype(str).tolist()
-            out = [normalize_text(x) for x in arr if normalize_text(x)]
-            return out
-    col = df.columns[-1]
-    arr = df[col].dropna().astype(str).tolist()
-    return [normalize_text(x) for x in arr if normalize_text(x)]
+def load_libraries(uploaded_dialogue, uploaded_scene, uploaded_disclaimer):
+    if uploaded_dialogue is not None:
+        ddf = read_csv_bytes(uploaded_dialogue.getvalue())
+    else:
+        ddf = read_csv_path("dialogue_library.csv")
 
-dialogues, dialogue_cols = load_dialogues()
-scenes, scene_cols = load_scenes()
-disclaimers_p2 = load_disclaimers()
+    if uploaded_scene is not None:
+        sdf = read_csv_bytes(uploaded_scene.getvalue())
+    else:
+        sdf = read_csv_path("scene_library.csv")
+
+    if uploaded_disclaimer is not None:
+        xdf = read_csv_bytes(uploaded_disclaimer.getvalue())
+    else:
+        xdf = read_csv_path("disclaimer_prompt2.csv")
+
+    dialogues = df_to_records(ddf) or BUILTIN_DIALOGUES
+    scenes = df_to_records(sdf) or BUILTIN_SCENES
+
+    disclaimers = []
+    if xdf is not None and not xdf.empty:
+        xdf = xdf.copy()
+        xdf.columns = [str(c).strip() for c in xdf.columns.tolist()]
+        for c in ["disclaimer", "text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line", "script"]:
+            if c in xdf.columns:
+                arr = xdf[c].dropna().astype(str).tolist()
+                disclaimers = [normalize_text(a) for a in arr if normalize_text(a)]
+                break
+        if not disclaimers:
+            col = xdf.columns[-1]
+            arr = xdf[col].dropna().astype(str).tolist()
+            disclaimers = [normalize_text(a) for a in arr if normalize_text(a)]
+
+    disclaimers = disclaimers or BUILTIN_DISCLAIMERS
+    return dialogues, scenes, disclaimers
 
 # =========================
 # SESSION – ANTI DUP + KEY
@@ -206,7 +222,7 @@ if "gemini_api_key" not in st.session_state:
 # =========================
 # UTILS
 # =========================
-def pick_unique(pool, used_ids: set, key: str):
+def pick_unique(pool: List[dict], used_ids: set, key: str) -> dict:
     def get_id(x):
         v = safe_text(x.get(key))
         return v if v else str(hash(str(x)))
@@ -218,11 +234,11 @@ def pick_unique(pool, used_ids: set, key: str):
     used_ids.add(get_id(item))
     return item
 
-def filter_scenes_by_shoe_type(shoe_type: str):
+def filter_scenes_by_shoe_type(scenes: List[dict], shoe_type: str):
     f = [s for s in scenes if safe_text(s.get("shoe_type")).lower() == shoe_type.lower()]
     return f if f else scenes
 
-def filter_dialogues(shoe_type: str, tone: str):
+def filter_dialogues(dialogues: List[dict], shoe_type: str, tone: str):
     tone_f = [d for d in dialogues if safe_text(d.get("tone")) == tone]
     if not tone_f:
         tone_f = dialogues
@@ -239,8 +255,8 @@ def split_10s_timeline(n: int) -> List[Tuple[float, float]]:
         cuts = [0.0, 2.5, 5.0, 7.5, 10.0]
     return [(cuts[i], cuts[i + 1]) for i in range(n)]
 
-def pick_n_unique_scenes(shoe_type: str, n: int) -> List[dict]:
-    pool = filter_scenes_by_shoe_type(shoe_type)
+def pick_n_unique_scenes(scenes: List[dict], shoe_type: str, n: int) -> List[dict]:
+    pool = filter_scenes_by_shoe_type(scenes, shoe_type)
     return [pick_unique(pool, st.session_state.used_scene_ids, "id") for _ in range(n)]
 
 # =========================
@@ -271,10 +287,11 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
         return None, "NO_KEY"
     try:
         import google.generativeai as genai
-    except Exception as e:
-        return None, f"IMPORT_FAIL: {type(e).__name__}"
+    except Exception:
+        return None, "IMPORT_FAIL"
     try:
         genai.configure(api_key=api_key)
+
         models = genai.list_models()
         available = []
         for m in models:
@@ -282,9 +299,12 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
                 available.append(m.name)
         if not available:
             return None, "NO_MODELS"
+
         preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
         picked = next((p for p in preferred if p in available), available[0])
+
         model = genai.GenerativeModel(picked)
+
         prompt = (
             "You are a shoe classification system.\n"
             "Return ONLY ONE label from this list:\n"
@@ -292,25 +312,28 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
             "Rules:\n"
             "- Return exactly one word.\n"
             "- No explanations.\n"
-            "- If dress shoe / loafer / oxford / derby => leather.\n"
-            "- If sports running shoe => runner.\n"
-            "- If sneaker street => sneaker.\n"
+            "- dress shoe / loafer / oxford / derby => leather.\n"
+            "- sports running shoe => runner.\n"
+            "- sneaker street => sneaker.\n"
         )
+
         resp = model.generate_content([prompt, img])
         text = (getattr(resp, "text", "") or "").strip().lower()
         raw = f"{picked} -> {text}" if text else f"{picked} -> EMPTY_TEXT"
+
         norm = re.sub(r"[^a-z_]", "", text)
         if norm in SHOE_TYPES:
             return norm, raw
         for t in SHOE_TYPES:
             if t in norm:
                 return t, raw
+
         return None, raw
     except Exception as e:
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
 
 # =========================
-# VOICE STYLE PACK (đa dạng cách đọc)
+# VOICE STYLE PACK
 # =========================
 VOICE_STYLE_PACK = [
     "Calm, slow luxury pacing; warm confident male voice; natural pauses; friendly tone",
@@ -319,12 +342,11 @@ VOICE_STYLE_PACK = [
     "Soft storytelling; relaxed tempo; gentle emphasis; intimate phone-video feel",
     "Energetic but clean; slightly faster tempo; sporty vibe; keep it natural",
 ]
-
 def pick_voice_style() -> str:
     return random.choice(VOICE_STYLE_PACK)
 
 # =========================
-# VISUAL STYLE PACK (5 styles per batch)
+# VISUAL STYLE PACK
 # =========================
 STYLE_PACK = [
     {"id":"style_01","name":"Bright boutique studio","lens":"40-50mm","grade":"clean bright luxury",
@@ -343,7 +365,6 @@ STYLE_PACK = [
      "exposure":"high-key lighting, zero blur, zero noise",
      "camera":"macro movement but keep shoe the sharpest object"},
 ]
-
 def pick_unique_style_for_batch(batch_used: set) -> dict:
     pool = [s for s in STYLE_PACK if s["id"] not in batch_used]
     if not pool:
@@ -368,23 +389,23 @@ def split_sentences(text: str) -> List[str]:
         return []
     return [p.strip() for p in re.split(r"[.!?]+", t) if p.strip()]
 
-def get_dialogue_3_sentences(row: dict, tone: str) -> str:
+def get_dialogue_3_sentences(row: dict) -> str:
     parts = split_sentences(get_dialogue_from_csv(row))
     a = parts[0] if len(parts) > 0 else "Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn."
     b = parts[1] if len(parts) > 1 else "Đi một lúc thấy nhịp bước đều, cảm giác khá ổn định."
     c = parts[2] if len(parts) > 2 else "Nhìn tổng thể tối giản nhưng vẫn có điểm tinh tế."
     return normalize_text(f"{ensure_end_punct(a)}\n{ensure_end_punct(b)}\n{ensure_end_punct(c)}")
 
-def get_dialogue_2_sentences(row: dict, tone: str) -> str:
+def get_dialogue_2_sentences(row: dict) -> str:
     parts = split_sentences(get_dialogue_from_csv(row))
     a = parts[0] if len(parts) > 0 else "Hôm nay mình chọn kiểu gọn gàng để ra ngoài cho tự tin hơn."
     b = parts[1] if len(parts) > 1 else "Cảm giác di chuyển khá nhẹ nhàng và dễ chịu."
     return normalize_text(f"{ensure_end_punct(a)}\n{ensure_end_punct(b)}")
 
 # =========================
-# PROMPT BUILDER (match old working layout, minimal blank lines)
+# PROMPT BUILDER (format giống prompt cũ)
 # =========================
-SEP = HEAVY_SEP
+SEP = "══════════════════════════════════"
 
 def build_prompt(
     mode: str,
@@ -395,7 +416,6 @@ def build_prompt(
     timeline: List[Tuple[float, float]],
     voice_lines: str,
     voice_style_line: str,
-    punct_safe_enable: bool,
 ) -> str:
     if mode == "p1":
         title = "VIDEO SETUP — SLOW LUXURY EDITION (NO CAMEO) (FINAL • TEXT ORIENTATION & SHARPNESS LOCK)"
@@ -409,7 +429,6 @@ def build_prompt(
             "No hard call to action, no price, no discount, no guarantees"
         )
 
-    # Shot list: keep it simple + consistent
     shot_lines = []
     for sc, (a, b) in zip(scene_list, timeline):
         loc = compact_spaces(safe_text(sc.get("location")))
@@ -417,125 +436,126 @@ def build_prompt(
         mot = compact_spaces(safe_text(sc.get("motion")))
         wea = compact_spaces(safe_text(sc.get("weather")))
         mood = compact_spaces(safe_text(sc.get("mood")))
-        # use hyphen in time range to avoid parser issues in some editors
-        line = f"{a:.1f}-{b:.1f}s: {loc}. {light}. Camera {mot}. Weather {wea}. Mood {mood}."
+        line = f"{a:.1f}–{b:.1f}s: {loc}. {light}. Camera {mot}. Weather {wea}. Mood {mood}."
         shot_lines.append(ensure_end_punct(line))
     shot_block = "\n".join(shot_lines)
 
-    # IMPORTANT: mimic the old prompt spacing (no extra blank lines between SEP and headers)
-    lines = [
-        CAMEO_VOICE_ID,
-        "",
-        SEP,
-        title,
-        SEP,
-        "Video dọc 9:16 — 10s",
-        "Ultra Sharp PRO 4K output (internal 12K)",
-        "Realistic cinematic video (NOT static image)",
-        "Use the EXACT uploaded shoe image",
-        "TikTok-safe absolute",
-        "",
-        "NO text",
-        "NO logo",
-        "NO watermark",
-        "NO blur",
-        "NO haze",
-        "NO glow",
-        "",
-        SEP,
-        "ULTRA BRIGHTNESS + SHARPNESS LOCK — ABSOLUTE",
-        SEP,
-        "MANDATORY",
-        "Bright exposure, HDR+, clean blacks, no underexposure",
-        "Shoe is the sharpest object on screen in all frames",
-        "Zero motion blur on shoe",
-        "If movement risks blur, reduce movement",
-        "No foggy lighting, no darkness, no noisy shadows",
-        "",
-        SEP,
-        "VISUAL STYLE PACK — THIS PROMPT",
-        SEP,
-        f"Style: {style.get('name')}",
-        f"Lens: {style.get('lens')}",
-        f"Color grade: {style.get('grade')}",
-        f"Exposure: {style.get('exposure')}",
-        f"Camera feel: {style.get('camera')}",
-        "",
-        SEP,
-        "CAST RULE",
-        SEP,
-        cast_block,
-        "",
-        SEP,
-        "SHOE REFERENCE — ABSOLUTE LOCK",
-        SEP,
-        "Use ONLY the uploaded shoe image as reference",
-        "LOCK 100 percent shoe identity",
-        "Toe shape, panels, stitching, sole, proportions",
-        "NO redesign",
-        "NO deformation",
-        "NO guessing",
-        "NO color shift",
-        "LACE RULE",
-        "If the uploaded shoe image shows laces then keep laces in ALL frames",
-        "If the uploaded shoe image shows no laces then ABSOLUTELY NO laces",
-        "",
-        SEP,
-        "TEXT & LOGO ORIENTATION LOCK — ABSOLUTE",
-        SEP,
-        "If the uploaded shoe image contains any text, logo, symbol, number",
-        "Text orientation MUST be correct",
-        "NOT mirrored",
-        "NOT reversed",
-        "NOT flipped",
-        "Camera orbit and reflections MUST NOT reverse any logo or text",
-        "STRICTLY FORBIDDEN",
-        "Mirrored letters",
-        "Reversed logos",
-        "Flipped symbols",
-        "If any angle risks flipping text, prioritize correct text orientation over camera style",
-        "",
-        SEP,
-        "SHOT LIST — TOTAL 10s (MULTI-SHOT)",
-        SEP,
-        shot_block,
-        "",
-        SEP,
-        "AUDIO MASTERING — CALM & CLEAR",
-        SEP,
-        f"Voice style: {compact_spaces(voice_style_line)}",
-        "0.0-1.2s: NO voice, light ambient only",
-        "1.2-6.9s: VOICE ON",
-        "6.9-10.0s: VOICE OFF completely, music only, gentle fade-out",
-        "",
-        SEP,
-        "VOICEOVER (1.2–6.9s)",
-        SEP,
-        normalize_text(voice_lines),
-        "",
-        SEP,
-        "HARD RULES — ABSOLUTE",
-        SEP,
-        "NO on-screen text",
-        "NO logos overlay",
-        "NO watermark",
-        "NO mirrored logo",
-        "NO reversed letters",
-        "NO shoe distortion",
-        "NO incorrect shoe",
-    ]
+    prompt_text = f"""
+{CAMEO_VOICE_ID}
 
-    prompt = "\n".join(lines)
-    prompt = normalize_text(prompt)
-    prompt = sora_punct_safe(prompt, enable=punct_safe_enable)
-    return prompt
+{SEP}
+{title}
+{SEP}
+Video dọc 9:16 — 10s
+Ultra Sharp PRO 4K output (internal 12K)
+Realistic cinematic video (NOT static image)
+Use the EXACT uploaded shoe image
+TikTok-safe absolute
+
+NO text
+NO logo
+NO watermark
+NO blur
+NO haze
+NO glow
+
+{SEP}
+ULTRA BRIGHTNESS + SHARPNESS LOCK — ABSOLUTE
+{SEP}
+MANDATORY
+Bright exposure, HDR+, clean blacks, no underexposure
+Shoe is the sharpest object on screen in all frames
+Zero motion blur on shoe
+If movement risks blur, reduce movement
+No foggy lighting, no darkness, no noisy shadows
+
+{SEP}
+VISUAL STYLE PACK — THIS PROMPT
+{SEP}
+Style: {style.get("name")}
+Lens: {style.get("lens")}
+Color grade: {style.get("grade")}
+Exposure: {style.get("exposure")}
+Camera feel: {style.get("camera")}
+
+{SEP}
+CAST RULE
+{SEP}
+{cast_block}
+
+{SEP}
+SHOE REFERENCE — ABSOLUTE LOCK
+{SEP}
+Use ONLY the uploaded shoe image as reference
+LOCK 100 percent shoe identity
+Toe shape, panels, stitching, sole, proportions
+NO redesign
+NO deformation
+NO guessing
+NO color shift
+LACE RULE
+If the uploaded shoe image shows laces then keep laces in ALL frames
+If the uploaded shoe image shows no laces then ABSOLUTELY NO laces
+
+{SEP}
+TEXT & LOGO ORIENTATION LOCK — ABSOLUTE
+{SEP}
+If the uploaded shoe image contains any text, logo, symbol, number
+Text orientation MUST be correct
+NOT mirrored
+NOT reversed
+NOT flipped
+Camera orbit and reflections MUST NOT reverse any logo or text
+STRICTLY FORBIDDEN
+Mirrored letters
+Reversed logos
+Flipped symbols
+If any angle risks flipping text, prioritize correct text orientation over camera style
+
+{SEP}
+PRODUCT
+{SEP}
+shoe_name: {compact_spaces(shoe_name)}
+shoe_type: {compact_spaces(shoe_type)}
+
+{SEP}
+SHOT LIST — TOTAL 10s (MULTI-SHOT)
+{SEP}
+{shot_block}
+
+{SEP}
+AUDIO MASTERING — CALM & CLEAR
+{SEP}
+Voice style: {compact_spaces(voice_style_line)}
+0.0–1.2s: NO voice, light ambient only
+1.2–6.9s: VOICE ON
+6.9–10.0s: VOICE OFF completely, music only, gentle fade-out
+
+{SEP}
+VOICEOVER (1.2–6.9s)
+{SEP}
+{normalize_text(voice_lines)}
+
+{SEP}
+HARD RULES — ABSOLUTE
+{SEP}
+NO on-screen text
+NO logos overlay
+NO watermark
+NO mirrored logo
+NO reversed letters
+NO shoe distortion
+NO incorrect shoe
+""".strip()
+
+    return normalize_text(prompt_text)
 
 # =========================
-# SIDEBAR: GEMINI KEY (manual input)
+# SIDEBAR: CSV upload + Gemini key
 # =========================
 with st.sidebar:
     st.markdown("### Gemini API Key")
-    st.caption("Dán key vào đây để AI detect shoe_type. Key chỉ lưu trong session.")
+    st.caption("Dán key vào đây để AI detect shoe_type. Key chỉ lưu trong session (không hard-code).")
 
     key_in = st.text_input("Paste your Gemini API key here", value=st.session_state.gemini_api_key, type="password")
     c1, c2 = st.columns(2)
@@ -544,14 +564,18 @@ with st.sidebar:
             st.session_state.gemini_api_key = (key_in or "").strip()
             st.success("Saved for this session.")
     with c2:
-        if st.button("Clear", use_container_width=True):
+        if st.button("Clear key", use_container_width=True):
             st.session_state.gemini_api_key = ""
             st.info("Cleared.")
 
-    if st.session_state.gemini_api_key:
-        st.success("Key is set.")
-    else:
-        st.warning("No key set. AI detect will be OFF (fallback filename/manual).")
+    st.divider()
+    st.markdown("### CSV Libraries (optional)")
+    st.caption("Nếu repo đã có 3 file CSV thì không cần upload. Nếu chưa có, upload ở đây để app chạy đúng thư viện của chồng.")
+    up_d = st.file_uploader("dialogue_library.csv", type=["csv"], key="u_dialogue")
+    up_s = st.file_uploader("scene_library.csv", type=["csv"], key="u_scene")
+    up_x = st.file_uploader("disclaimer_prompt2.csv", type=["csv"], key="u_disc")
+
+dialogues, scenes, disclaimers_p2 = load_libraries(up_d, up_s, up_x)
 
 # =========================
 # UI
@@ -562,19 +586,18 @@ with left:
     uploaded = st.file_uploader("Upload shoe image", type=["jpg", "png", "jpeg"])
     mode_ui = st.radio("Prompt mode", ["PROMPT 1 - No cameo", "PROMPT 2 - With cameo"], index=0)
     tone = st.selectbox("Tone", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
+
     scene_count = st.slider("Shots inside total 10s", 2, 4, 4)
     count = st.slider("Prompts per click", 1, 10, 5)
+
     detect_mode = st.selectbox("shoe_type detect", ["AI (image) - preferred", "Auto (filename) - fallback", "Manual"], index=0)
-    punct_safe_enable = st.checkbox("SORA punctuation-safe (khuyên bật nếu Sora báo lỗi prompt)", value=True)
 
 with right:
     st.subheader("Notes")
     st.write("Mỗi lần bấm **Generate** sẽ ra **5 prompt** và **5 phong cách video** khác nhau (style pack).")
-    st.write("Có khóa **sáng + nét** để tránh video tối/mờ.")
+    st.write("Có khóa **sáng + nét** để hạn chế video tối/mờ.")
     st.write("Có khóa **hướng chữ/logo** để tránh bị ngược chữ trên giày.")
-    st.write("Nếu Sora báo lỗi prompt: bật **SORA punctuation-safe** để thay ký tự gạch dài/khung thành ký tự đơn giản.")
-    st.caption("Dialogue cols: " + ", ".join([str(x) for x in dialogue_cols]))
-    st.caption("Scene cols: " + ", ".join([str(x) for x in scene_cols]))
+    st.caption(f"Loaded dialogues: {len(dialogues)} | scenes: {len(scenes)} | disclaimers: {len(disclaimers_p2)}")
 
 st.divider()
 
@@ -609,17 +632,17 @@ if uploaded:
 
         for _ in range(count):
             style = pick_unique_style_for_batch(batch_used_styles)
-            scene_list = pick_n_unique_scenes(shoe_type, scene_count)
+            scene_list = pick_n_unique_scenes(scenes, shoe_type, scene_count)
             timeline = split_10s_timeline(scene_count)
 
-            d_pool = filter_dialogues(shoe_type, tone)
+            d_pool = filter_dialogues(dialogues, shoe_type, tone)
             d = pick_unique(d_pool, st.session_state.used_dialogue_ids, "id")
 
             if mode_ui.startswith("PROMPT 1"):
-                voice_lines = get_dialogue_3_sentences(d, tone)
+                voice_lines = get_dialogue_3_sentences(d)
                 mode = "p1"
             else:
-                voice_2 = get_dialogue_2_sentences(d, tone)
+                voice_2 = get_dialogue_2_sentences(d)
                 disc_raw = random.choice(disclaimers_p2) if disclaimers_p2 else "Nội dung chỉ mang tính chia sẻ trải nghiệm."
                 voice_lines = normalize_text(f"{voice_2}\n{short_disclaimer(disc_raw)}")
                 mode = "p2"
@@ -633,7 +656,6 @@ if uploaded:
                 timeline=timeline,
                 voice_lines=voice_lines,
                 voice_style_line=pick_voice_style(),
-                punct_safe_enable=punct_safe_enable,
             )
             arr.append(prompt)
 
@@ -656,9 +678,3 @@ if st.button("Reset anti-duplicate"):
     st.session_state.used_scene_ids.clear()
     st.session_state.generated_prompts = []
     st.success("Reset done.")
-'''
-out_path = Path("/mnt/data/app.py")
-out_path.write_text(app_code, encoding="utf-8")
-req = "streamlit\npandas\npillow\ngoogle-generativeai\n"
-Path("/mnt/data/requirements.txt").write_text(req, encoding="utf-8")
-str(out_path), "/mnt/data/requirements.txt"
