@@ -1,4 +1,5 @@
-import streamlit as st
+from pathlib import Path
+app_code = r'''import streamlit as st
 import pandas as pd
 import random
 import re
@@ -16,8 +17,8 @@ from PIL import Image
 # - 5 prompts per click (default)
 # - 5 different visual styles per batch (style pack)
 # - Voice style pack (đa dạng cách đọc)
-# - Unicode copy-safe (không lỗi dấu)
-# - Text/logo orientation lock (no mirrored/reversed logo)
+# - Unicode copy-safe (không lỗi dấu khi copy/paste)
+# - Optional "SORA punctuation-safe" (thay ký tự gạch dài/khung bằng ký tự đơn giản hơn)
 # - Gemini API key nhập trực tiếp trên UI (không hard-code)
 # ==========================================================
 
@@ -83,6 +84,30 @@ def short_disclaimer(raw: str) -> str:
     if len(s) > 140:
         s = s[:140].rstrip() + "."
     return normalize_text(s)
+
+# =========================
+# SORA PUNCTUATION SAFE
+# - Chỉ thay các ký tự dễ gây lỗi parse (gạch dài / khung / bullet đặc biệt)
+# - KHÔNG đụng tiếng Việt có dấu
+# =========================
+HEAVY_SEP = "══════════════════════════════════"
+LIGHT_SEP = "----------------------------------"
+
+def sora_punct_safe(text: str, enable: bool) -> str:
+    if not enable:
+        return text
+    t = text
+    # separators
+    t = t.replace(HEAVY_SEP, LIGHT_SEP)
+    # long dashes to normal hyphen
+    t = t.replace("—", "-").replace("–", "-")
+    # bullets / arrows / weird punctuation (keep it simple)
+    t = t.replace("•", "-").replace("→", "->").replace("✔", "").replace("✖", "").replace("✅", "").replace("🚫", "")
+    # collapse multiple spaces
+    t = re.sub(r"[ \t]+", " ", t)
+    # keep line breaks, strip trailing
+    t = "\n".join([ln.rstrip() for ln in t.split("\n")])
+    return t.strip()
 
 # =========================
 # COPY BUTTON (UNICODE SAFE)
@@ -152,14 +177,12 @@ def load_scenes():
 def load_disclaimers():
     df = read_csv_flexible("disclaimer_prompt2.csv")
     df.columns = [c.strip() for c in df.columns.tolist()]
-
-    # try preferred columns first
+    # preferred cols
     for c in ["disclaimer", "text", "mien_tru", "miễn_trừ", "note", "content", "noi_dung", "line", "script"]:
         if c in df.columns:
             arr = df[c].dropna().astype(str).tolist()
             out = [normalize_text(x) for x in arr if normalize_text(x)]
             return out
-
     col = df.columns[-1]
     arr = df[col].dropna().astype(str).tolist()
     return [normalize_text(x) for x in arr if normalize_text(x)]
@@ -187,7 +210,6 @@ def pick_unique(pool, used_ids: set, key: str):
     def get_id(x):
         v = safe_text(x.get(key))
         return v if v else str(hash(str(x)))
-
     items = [x for x in pool if get_id(x) not in used_ids]
     if not items:
         used_ids.clear()
@@ -247,29 +269,22 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
     api_key = (api_key or "").strip()
     if not api_key:
         return None, "NO_KEY"
-
     try:
         import google.generativeai as genai
     except Exception as e:
         return None, f"IMPORT_FAIL: {type(e).__name__}"
-
     try:
         genai.configure(api_key=api_key)
-
         models = genai.list_models()
         available = []
         for m in models:
             if "generateContent" in getattr(m, "supported_generation_methods", []):
                 available.append(m.name)
-
         if not available:
             return None, "NO_MODELS"
-
         preferred = ["models/gemini-1.5-flash", "models/gemini-1.5-pro", "models/gemini-pro-vision"]
         picked = next((p for p in preferred if p in available), available[0])
-
         model = genai.GenerativeModel(picked)
-
         prompt = (
             "You are a shoe classification system.\n"
             "Return ONLY ONE label from this list:\n"
@@ -281,18 +296,15 @@ def gemini_detect_shoe_type(img: Image.Image, api_key: str) -> Tuple[Optional[st
             "- If sports running shoe => runner.\n"
             "- If sneaker street => sneaker.\n"
         )
-
         resp = model.generate_content([prompt, img])
         text = (getattr(resp, "text", "") or "").strip().lower()
         raw = f"{picked} -> {text}" if text else f"{picked} -> EMPTY_TEXT"
-
         norm = re.sub(r"[^a-z_]", "", text)
         if norm in SHOE_TYPES:
             return norm, raw
         for t in SHOE_TYPES:
             if t in norm:
                 return t, raw
-
         return None, raw
     except Exception as e:
         return None, f"CALL_FAIL: {type(e).__name__}: {e}"
@@ -370,9 +382,9 @@ def get_dialogue_2_sentences(row: dict, tone: str) -> str:
     return normalize_text(f"{ensure_end_punct(a)}\n{ensure_end_punct(b)}")
 
 # =========================
-# PROMPT BUILDER (old working format)
+# PROMPT BUILDER (match old working layout, minimal blank lines)
 # =========================
-SEP = "══════════════════════════════════"
+SEP = HEAVY_SEP
 
 def build_prompt(
     mode: str,
@@ -383,6 +395,7 @@ def build_prompt(
     timeline: List[Tuple[float, float]],
     voice_lines: str,
     voice_style_line: str,
+    punct_safe_enable: bool,
 ) -> str:
     if mode == "p1":
         title = "VIDEO SETUP — SLOW LUXURY EDITION (NO CAMEO) (FINAL • TEXT ORIENTATION & SHARPNESS LOCK)"
@@ -396,6 +409,7 @@ def build_prompt(
             "No hard call to action, no price, no discount, no guarantees"
         )
 
+    # Shot list: keep it simple + consistent
     shot_lines = []
     for sc, (a, b) in zip(scene_list, timeline):
         loc = compact_spaces(safe_text(sc.get("location")))
@@ -403,148 +417,125 @@ def build_prompt(
         mot = compact_spaces(safe_text(sc.get("motion")))
         wea = compact_spaces(safe_text(sc.get("weather")))
         mood = compact_spaces(safe_text(sc.get("mood")))
-        line = f"{a:.1f}–{b:.1f}s: {loc}. {light}. Camera {mot}. Weather {wea}. Mood {mood}."
+        # use hyphen in time range to avoid parser issues in some editors
+        line = f"{a:.1f}-{b:.1f}s: {loc}. {light}. Camera {mot}. Weather {wea}. Mood {mood}."
         shot_lines.append(ensure_end_punct(line))
     shot_block = "\n".join(shot_lines)
 
-    prompt_text = f"""
-{CAMEO_VOICE_ID}
+    # IMPORTANT: mimic the old prompt spacing (no extra blank lines between SEP and headers)
+    lines = [
+        CAMEO_VOICE_ID,
+        "",
+        SEP,
+        title,
+        SEP,
+        "Video dọc 9:16 — 10s",
+        "Ultra Sharp PRO 4K output (internal 12K)",
+        "Realistic cinematic video (NOT static image)",
+        "Use the EXACT uploaded shoe image",
+        "TikTok-safe absolute",
+        "",
+        "NO text",
+        "NO logo",
+        "NO watermark",
+        "NO blur",
+        "NO haze",
+        "NO glow",
+        "",
+        SEP,
+        "ULTRA BRIGHTNESS + SHARPNESS LOCK — ABSOLUTE",
+        SEP,
+        "MANDATORY",
+        "Bright exposure, HDR+, clean blacks, no underexposure",
+        "Shoe is the sharpest object on screen in all frames",
+        "Zero motion blur on shoe",
+        "If movement risks blur, reduce movement",
+        "No foggy lighting, no darkness, no noisy shadows",
+        "",
+        SEP,
+        "VISUAL STYLE PACK — THIS PROMPT",
+        SEP,
+        f"Style: {style.get('name')}",
+        f"Lens: {style.get('lens')}",
+        f"Color grade: {style.get('grade')}",
+        f"Exposure: {style.get('exposure')}",
+        f"Camera feel: {style.get('camera')}",
+        "",
+        SEP,
+        "CAST RULE",
+        SEP,
+        cast_block,
+        "",
+        SEP,
+        "SHOE REFERENCE — ABSOLUTE LOCK",
+        SEP,
+        "Use ONLY the uploaded shoe image as reference",
+        "LOCK 100 percent shoe identity",
+        "Toe shape, panels, stitching, sole, proportions",
+        "NO redesign",
+        "NO deformation",
+        "NO guessing",
+        "NO color shift",
+        "LACE RULE",
+        "If the uploaded shoe image shows laces then keep laces in ALL frames",
+        "If the uploaded shoe image shows no laces then ABSOLUTELY NO laces",
+        "",
+        SEP,
+        "TEXT & LOGO ORIENTATION LOCK — ABSOLUTE",
+        SEP,
+        "If the uploaded shoe image contains any text, logo, symbol, number",
+        "Text orientation MUST be correct",
+        "NOT mirrored",
+        "NOT reversed",
+        "NOT flipped",
+        "Camera orbit and reflections MUST NOT reverse any logo or text",
+        "STRICTLY FORBIDDEN",
+        "Mirrored letters",
+        "Reversed logos",
+        "Flipped symbols",
+        "If any angle risks flipping text, prioritize correct text orientation over camera style",
+        "",
+        SEP,
+        "SHOT LIST — TOTAL 10s (MULTI-SHOT)",
+        SEP,
+        shot_block,
+        "",
+        SEP,
+        "AUDIO MASTERING — CALM & CLEAR",
+        SEP,
+        f"Voice style: {compact_spaces(voice_style_line)}",
+        "0.0-1.2s: NO voice, light ambient only",
+        "1.2-6.9s: VOICE ON",
+        "6.9-10.0s: VOICE OFF completely, music only, gentle fade-out",
+        "",
+        SEP,
+        "VOICEOVER (1.2–6.9s)",
+        SEP,
+        normalize_text(voice_lines),
+        "",
+        SEP,
+        "HARD RULES — ABSOLUTE",
+        SEP,
+        "NO on-screen text",
+        "NO logos overlay",
+        "NO watermark",
+        "NO mirrored logo",
+        "NO reversed letters",
+        "NO shoe distortion",
+        "NO incorrect shoe",
+    ]
 
-{SEP}
-
-{title}
-
-{SEP}
-Video dọc 9:16 — 10s
-Ultra Sharp PRO 4K output (internal 12K)
-Realistic cinematic video (NOT static image)
-Use the EXACT uploaded shoe image
-TikTok-safe absolute
-
-NO text
-NO logo
-NO watermark
-NO blur
-NO haze
-NO glow
-
-{SEP}
-
-ULTRA BRIGHTNESS + SHARPNESS LOCK — ABSOLUTE
-
-{SEP}
-MANDATORY
-Bright exposure, HDR+, clean blacks, no underexposure
-Shoe is the sharpest object on screen in all frames
-Zero motion blur on shoe
-If movement risks blur, reduce movement
-No foggy lighting, no darkness, no noisy shadows
-
-{SEP}
-
-VISUAL STYLE PACK — THIS PROMPT
-
-{SEP}
-Style: {style.get("name")}
-Lens: {style.get("lens")}
-Color grade: {style.get("grade")}
-Exposure: {style.get("exposure")}
-Camera feel: {style.get("camera")}
-
-{SEP}
-
-CAST RULE
-
-{SEP}
-{cast_block}
-
-{SEP}
-
-SHOE REFERENCE — ABSOLUTE LOCK
-
-{SEP}
-Use ONLY the uploaded shoe image as reference
-LOCK 100 percent shoe identity
-Toe shape, panels, stitching, sole, proportions
-NO redesign
-NO deformation
-NO guessing
-NO color shift
-LACE RULE
-If the uploaded shoe image shows laces then keep laces in ALL frames
-If the uploaded shoe image shows no laces then ABSOLUTELY NO laces
-
-{SEP}
-
-TEXT & LOGO ORIENTATION LOCK — ABSOLUTE
-
-{SEP}
-If the uploaded shoe image contains any text, logo, symbol, number
-Text orientation MUST be correct
-NOT mirrored
-NOT reversed
-NOT flipped
-Camera orbit and reflections MUST NOT reverse any logo or text
-STRICTLY FORBIDDEN
-Mirrored letters
-Reversed logos
-Flipped symbols
-If any angle risks flipping text, prioritize correct text orientation over camera style
-
-{SEP}
-
-PRODUCT
-
-{SEP}
-shoe_name: {compact_spaces(shoe_name)}
-shoe_type: {compact_spaces(shoe_type)}
-
-{SEP}
-
-SHOT LIST — TOTAL 10s (MULTI-SHOT)
-
-{SEP}
-{shot_block}
-
-{SEP}
-
-AUDIO MASTERING — CALM & CLEAR
-
-{SEP}
-Voice style: {compact_spaces(voice_style_line)}
-0.0–1.2s: NO voice, light ambient only
-1.2–6.9s: VOICE ON
-6.9–10.0s: VOICE OFF completely, music only, gentle fade-out
-
-{SEP}
-
-VOICEOVER (1.2–6.9s)
-
-{SEP}
-{normalize_text(voice_lines)}
-
-{SEP}
-
-HARD RULES — ABSOLUTE
-
-{SEP}
-NO on-screen text
-NO logos overlay
-NO watermark
-NO mirrored logo
-NO reversed letters
-NO shoe distortion
-NO incorrect shoe
-""".strip()
-
-    return normalize_text(prompt_text)
+    prompt = "\n".join(lines)
+    prompt = normalize_text(prompt)
+    prompt = sora_punct_safe(prompt, enable=punct_safe_enable)
+    return prompt
 
 # =========================
 # SIDEBAR: GEMINI KEY (manual input)
 # =========================
 with st.sidebar:
     st.markdown("### Gemini API Key")
-    st.caption("Dán key vào đây để AI detect shoe_type. Key chỉ lưu trong session (không hard-code).")
+    st.caption("Dán key vào đây để AI detect shoe_type. Key chỉ lưu trong session.")
 
     key_in = st.text_input("Paste your Gemini API key here", value=st.session_state.gemini_api_key, type="password")
     c1, c2 = st.columns(2)
@@ -571,17 +562,17 @@ with left:
     uploaded = st.file_uploader("Upload shoe image", type=["jpg", "png", "jpeg"])
     mode_ui = st.radio("Prompt mode", ["PROMPT 1 - No cameo", "PROMPT 2 - With cameo"], index=0)
     tone = st.selectbox("Tone", ["Truyền cảm", "Tự tin", "Mạnh mẽ", "Lãng mạn", "Tự nhiên"], index=1)
-
     scene_count = st.slider("Shots inside total 10s", 2, 4, 4)
     count = st.slider("Prompts per click", 1, 10, 5)
-
     detect_mode = st.selectbox("shoe_type detect", ["AI (image) - preferred", "Auto (filename) - fallback", "Manual"], index=0)
+    punct_safe_enable = st.checkbox("SORA punctuation-safe (khuyên bật nếu Sora báo lỗi prompt)", value=True)
 
 with right:
     st.subheader("Notes")
     st.write("Mỗi lần bấm **Generate** sẽ ra **5 prompt** và **5 phong cách video** khác nhau (style pack).")
     st.write("Có khóa **sáng + nét** để tránh video tối/mờ.")
     st.write("Có khóa **hướng chữ/logo** để tránh bị ngược chữ trên giày.")
+    st.write("Nếu Sora báo lỗi prompt: bật **SORA punctuation-safe** để thay ký tự gạch dài/khung thành ký tự đơn giản.")
     st.caption("Dialogue cols: " + ", ".join([str(x) for x in dialogue_cols]))
     st.caption("Scene cols: " + ", ".join([str(x) for x in scene_cols]))
 
@@ -642,6 +633,7 @@ if uploaded:
                 timeline=timeline,
                 voice_lines=voice_lines,
                 voice_style_line=pick_voice_style(),
+                punct_safe_enable=punct_safe_enable,
             )
             arr.append(prompt)
 
@@ -655,7 +647,6 @@ if uploaded:
             with tab:
                 st.text_area("Prompt", prompts[i], height=560, key=f"view_{i}")
                 copy_button_unicode_safe(prompts[i], key=f"copy_{i}")
-
 else:
     st.warning("Upload a shoe image to begin.")
 
@@ -665,3 +656,9 @@ if st.button("Reset anti-duplicate"):
     st.session_state.used_scene_ids.clear()
     st.session_state.generated_prompts = []
     st.success("Reset done.")
+'''
+out_path = Path("/mnt/data/app.py")
+out_path.write_text(app_code, encoding="utf-8")
+req = "streamlit\npandas\npillow\ngoogle-generativeai\n"
+Path("/mnt/data/requirements.txt").write_text(req, encoding="utf-8")
+str(out_path), "/mnt/data/requirements.txt"
